@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script src="js/access-gate.js"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<title>Universal Data Fetcher · Vitarus</title>
+<link rel="stylesheet" href="css/shared.css">
+<link rel="stylesheet" href="css/redesign.css?v=3">
+<style>
+  .device-selector { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 16px; }
+  .device-btn {
+    padding: 12px 8px; border: 2px solid var(--border); border-radius: 8px; background: var(--surface-2);
+    cursor: pointer; text-align: center; transition: all .15s; font-size: 12px;
+  }
+  .device-btn:hover { border-color: var(--blue-light); background: var(--surface); }
+  .device-btn.active { border-color: var(--accent); background: #1a3a1a; }
+  .device-btn-icon { font-size: 24px; display: block; margin-bottom: 4px; }
+  .device-btn-label { font-weight: 600; font-size: 11px; }
+
+  .param-form { display: flex; flex-direction: column; gap: 10px; }
+  .action-list { display: flex; flex-direction: column; gap: 6px; }
+  .action-btn {
+    padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px;
+    background: var(--surface-2); cursor: pointer; text-align: left; font-size: 12px;
+    display: flex; align-items: center; gap: 8px; transition: all .15s;
+  }
+  .action-btn:hover { background: var(--surface); border-color: var(--blue-light); }
+  .action-type { font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: 700; }
+  .action-type.stream { background: #1a3a4f; color: #58a6ff; }
+  .action-type.request { background: #1a2a1a; color: #7ee787; }
+
+  .schema-view { font-family: var(--font-mono); font-size: 11px; line-height: 1.7; }
+  .schema-key { color: #79c0ff; }
+  .schema-type { color: #ffa657; }
+  .schema-desc { color: var(--text-muted); }
+  .schema-indent { padding-left: 20px; border-left: 1px solid var(--border); margin-left: 8px; }
+
+  .data-stream { font-family: var(--font-mono); font-size: 12px; padding: 12px;
+    background: var(--bg); border-radius: 6px; max-height: 400px; overflow-y: auto; }
+  .data-item { padding: 8px 0; border-bottom: 1px solid var(--border); }
+  .data-item:last-child { border-bottom: none; }
+  .data-timestamp { color: var(--text-dim); font-size: 10px; }
+
+  /* Multi-device dashboard */
+  .device-stream-card { border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
+    background: var(--surface); display: flex; flex-direction: column; }
+  .device-stream-header { padding: 10px 12px; background: var(--surface-2); display: flex;
+    align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); }
+  .device-stream-header .title { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; }
+  .device-stream-header .icon { font-size: 18px; }
+  .device-stream-header .controls { display: flex; gap: 4px; }
+  .device-stream-header .controls button { padding: 3px 8px; font-size: 10px; border-radius: 4px;
+    border: 1px solid var(--border); background: var(--surface); cursor: pointer; }
+  .device-stream-header .controls button:hover { background: var(--bg); }
+  .device-stream-body { padding: 8px; font-family: var(--font-mono); font-size: 11px;
+    max-height: 280px; overflow-y: auto; background: var(--bg); }
+  .device-stream-mini-item { padding: 6px 8px; border-bottom: 1px solid var(--border);
+    background: var(--surface-2); margin-bottom: 4px; border-radius: 4px; }
+  .device-stream-mini-item:last-child { margin-bottom: 0; }
+  .mini-timestamp { color: var(--text-dim); font-size: 9px; margin-bottom: 2px; }
+  .device-stream-footer { padding: 6px 12px; background: var(--surface-2); border-top: 1px solid var(--border);
+    font-size: 10px; color: var(--text-muted); display: flex; justify-content: space-between; }
+  .badge-streaming { background: #1a4f2a; color: #3fb950; padding: 2px 8px; border-radius: 10px;
+    font-size: 9px; font-weight: 700; }
+  .badge-paused { background: #3a2a1a; color: #ffa657; padding: 2px 8px; border-radius: 10px;
+    font-size: 9px; font-weight: 700; }
+
+</style>
+<link rel="stylesheet" href="css/redesign.css?v=3">
+</head>
+<body>
+
+<header class="page-header">
+  <a href="index.html" class="back-link">← All Devices</a>
+  <h1>🔄 Universal Data Fetcher</h1>
+  <span class="tag">Multi-Device Hub</span>
+</header>
+
+<div class="sandbox-layout">
+  <aside class="sidebar">
+
+    <!-- Device Selector -->
+    <div class="card">
+      <div class="card-header">📡 Select Device</div>
+      <div class="card-body">
+        <div class="device-selector" id="deviceSelector"></div>
+        <div id="selectedDevice" style="display:none;">
+          <div class="divider" style="margin:12px 0;"></div>
+          <p class="text-muted" style="font-size:11px;margin-bottom:8px;">
+            <strong id="selectedLabel"></strong><br>
+            <span id="selectedProtocol"></span>
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Connection Parameters -->
+    <div class="card" id="connectionCard" style="display:none;">
+      <div class="card-header">⚙️ Connection Parameters</div>
+      <div class="card-body">
+        <div class="param-form" id="connectionForm"></div>
+        <div style="margin-top:12px;">
+          <button class="btn btn-primary btn-full" id="connectBtn" onclick="connectDevice()">▶ Connect</button>
+          <button class="btn btn-secondary btn-full" id="disconnectBtn" onclick="disconnectDevice()" disabled style="margin-top:6px;">■ Disconnect</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Actions -->
+    <div class="card" id="actionsCard" style="display:none;">
+      <div class="card-header">🎬 Actions</div>
+      <div class="card-body">
+        <div class="action-list" id="actionList"></div>
+      </div>
+    </div>
+
+    <!-- Action Parameters -->
+    <div class="card" id="actionParamsCard" style="display:none;">
+      <div class="card-header">🔧 Action Parameters</div>
+      <div class="card-body">
+        <div class="param-form" id="actionParamsForm"></div>
+        <button class="btn btn-blue btn-full" id="executeBtn" onclick="executeAction()" style="margin-top:10px;">▶ Execute</button>
+      </div>
+    </div>
+
+  </aside>
+
+  <div class="main-panel">
+    <div class="pane-tabs">
+      <div class="pane-tab active" data-target="tab-stream">Data Stream</div>
+      <div class="pane-tab" data-target="tab-dashboard">Multi-Device Dashboard</div>
+      <div class="pane-tab" data-target="tab-schema">Output Schema</div>
+      <div class="pane-tab" data-target="tab-help">Help</div>
+    </div>
+
+    <div class="pane-content" style="flex:1;overflow:auto;">
+
+      <!-- Data Stream (current device only) -->
+      <div id="tab-stream" style="padding:20px;">
+        <div id="streamEmpty" class="card">
+          <div class="card-body" style="text-align:center;padding:40px 20px;color:var(--text-muted);">
+            <p style="font-size:14px;">No data yet.</p>
+            <p style="font-size:12px;margin-top:8px;">Select a device, connect, then run an action to see data here.</p>
+          </div>
+        </div>
+        <div id="streamData" class="data-stream" style="display:none;"></div>
+      </div>
+
+      <!-- Multi-Device Dashboard (all connected sensors) -->
+      <div id="tab-dashboard" style="padding:20px;display:none;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+          <h3 style="font-size:16px;font-weight:700;">🔄 Live Multi-Device Dashboard</h3>
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-secondary" onclick="clearAllDashboard()" style="padding:6px 12px;font-size:12px;">🗑 Clear All</button>
+            <button class="btn btn-secondary" id="pauseAllBtn" onclick="togglePauseAll()" style="padding:6px 12px;font-size:12px;">⏸ Pause All</button>
+          </div>
+        </div>
+        <div id="dashboardEmpty" class="card">
+          <div class="card-body" style="text-align:center;padding:40px 20px;color:var(--text-muted);">
+            <p style="font-size:14px;">No devices streaming yet.</p>
+            <p style="font-size:12px;margin-top:8px;">Connect devices and start their streams. All active streams will appear here.</p>
+          </div>
+        </div>
+        <div id="dashboardGrid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:16px;display:none;">
+          <!-- Device stream cards will be injected here -->
+        </div>
+      </div>
+
+      <!-- Output Schema -->
+      <div id="tab-schema" style="padding:20px;display:none;">
+        <div class="card">
+          <div class="card-header">📋 Output Schema Documentation</div>
+          <div class="card-body schema-view" id="schemaContent">
+            <p class="text-muted">Select an action from the sidebar to see its output schema.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Help -->
+      <div id="tab-help" style="padding:20px;display:none;">
+        <div class="card">
+          <div class="card-header">ℹ️ How to Use</div>
+          <div class="card-body" style="line-height:1.8;font-size:13px;">
+            <p><strong>1. Select Device</strong> — click a device card above</p>
+            <p><strong>2. Configure Connection</strong> — fill in IP/port/transport params</p>
+            <p><strong>3. Connect</strong> — click <b>▶ Connect</b></p>
+            <p><strong>4. Choose Action</strong> — stream or request (batch)</p>
+            <p><strong>5. View Data</strong> — real-time data appears in the <b>Data Stream</b> tab</p>
+            <p><strong>6. Check Schema</strong> — <b>Output Schema</b> tab documents every field</p>
+            <div class="divider" style="margin:16px 0;"></div>
+            <p class="text-muted" style="font-size:12px;">
+              <strong>Mode:</strong> This fetcher uses the same driver architecture as individual device pages.
+              Flip <code>USE_REAL_DEVICE</code> in <code>js/driver-base.js</code> to switch from simulation to real hardware.
+            </p>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="console-log" id="console"></div>
+  </div>
+</div>
+
+<script src="js/utils.js"></script>
+<script src="js/driver-base.js"></script>
+<script src="js/mode-indicator.js"></script>
+<script src="js/param-registry.js"></script>
+<script src="js/drivers/orbbec.js"></script>
+<script src="js/drivers/flir.js"></script>
+<script src="js/drivers/clarius.js"></script>
+<script src="js/drivers/vemo-tekscan-vetscan.js"></script>
+<script src="js/universal-fetcher-logic.js"></script>
+</body>
+</html>

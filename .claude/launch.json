@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "vitarus-static",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "4173"],
+      "port": 4173
+    },
+    {
+      "name": "vitarus-backend",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["server/index.js"],
+      "port": 4173
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "name": "vet-device-sandbox",
+  "version": "1.0.0",
+  "description": "A non-sedated canine & feline screening platform with five role-based interfaces sharing one database: clinic staff run the exam, a vet must review and sign off before anything is released, and only then does the owner see it. **Every hardware module is simulated today; flip one config flag to switch any module to real hardware.**",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "railway": "^3.8.1"
+  }
+}

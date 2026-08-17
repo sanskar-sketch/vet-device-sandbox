@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script src="../js/access-gate.js"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<title>Tekscan Animal Strideway · Sandbox</title>
+<link rel="stylesheet" href="../css/shared.css">
+<link rel="stylesheet" href="../css/redesign.css?v=1">
+</head>
+<body>
+<header class="page-header">
+  <a href="../index.html" class="back-link">← All Devices</a>
+  <h1>🐾 Tekscan Animal Strideway — Gait &amp; Pressure Analysis</h1>
+  <span class="device-badge" style="background:#1a2a0a;color:#7ee787;">Pressure / SDK</span>
+</header>
+
+<div class="sandbox-layout">
+  <aside class="sidebar">
+    <div class="card">
+      <div class="card-header">📡 SDK Connection</div>
+      <div class="card-body controls">
+        <div class="form-group">
+          <label>System</label>
+          <select id="system">
+            <option value="strideway">Animal Strideway (walkway)</option>
+            <option value="hoof">Hoof Pressure System</option>
+            <option value="paw">Paw / Small Animal Mat</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Sensor Rows</label>
+          <input type="number" id="rows" value="48" min="16" max="128">
+        </div>
+        <div class="form-group">
+          <label>Sensor Cols</label>
+          <input type="number" id="cols" value="64" min="16" max="128">
+        </div>
+        <div class="form-group">
+          <label>Frame Rate (Hz)</label>
+          <select id="frameRate">
+            <option value="100">100 Hz</option>
+            <option value="250">250 Hz</option>
+            <option value="50">50 Hz</option>
+          </select>
+        </div>
+        <button class="btn btn-primary btn-full" id="connectBtn" onclick="connectSDK()">▶ Initialize SDK</button>
+        <button class="btn btn-secondary btn-full" id="disconnectBtn" onclick="disconnectSDK()" disabled>■ Close SDK</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">⚙️ Acquisition</div>
+      <div class="card-body controls">
+        <div class="form-group">
+          <label>Animal Species</label>
+          <select id="species">
+            <option value="canine">Canine</option>
+            <option value="feline">Feline</option>
+            <option value="equine">Equine</option>
+            <option value="bovine">Bovine</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Calibration (N/sensel)</label>
+          <input type="number" id="calib" value="0.42" step="0.01">
+        </div>
+        <div class="row">
+          <button class="btn btn-blue btn-full" id="startBtn" onclick="startAcq()" disabled>▶ Record</button>
+          <button class="btn btn-secondary btn-full" id="stopBtn" onclick="stopAcq()" disabled>■ Stop</button>
+        </div>
+        <button class="btn btn-secondary btn-full" id="exportBtn" onclick="exportData()" disabled>📥 Export XML</button>
+        <button class="btn btn-secondary btn-full" id="captureBtn" onclick="captureFrame()" disabled>📸 Capture Frame</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">🐾 Gait Metrics</div>
+      <div class="card-body">
+        <table style="width:100%;font-size:12px;border-collapse:collapse;line-height:2.1;">
+          <tr><td class="text-muted">Peak Force</td><td class="text-mono" id="m-peak">—</td></tr>
+          <tr><td class="text-muted">Contact Area</td><td class="text-mono" id="m-area">—</td></tr>
+          <tr><td class="text-muted">Total Force</td><td class="text-mono" id="m-total">—</td></tr>
+          <tr><td class="text-muted">Stance Time</td><td class="text-mono" id="m-stance">—</td></tr>
+          <tr><td class="text-muted">Impulse</td><td class="text-mono" id="m-impulse">—</td></tr>
+          <tr><td class="text-muted">Frames</td><td class="text-mono" id="m-frames">—</td></tr>
+        </table>
+      </div>
+    </div>
+  </aside>
+
+  <div class="main-panel">
+    <div class="pane-tabs">
+      <div class="pane-tab active" data-target="tab-pressure">Pressure Map</div>
+      <div class="pane-tab" data-target="tab-request">SDK Code</div>
+      <div class="pane-tab" data-target="tab-response">Frame Data</div>
+      <div class="pane-tab" data-target="tab-export">XML Export</div>
+    </div>
+    <div class="pane-content" style="flex:1;overflow:auto;">
+
+      <!-- Pressure Map -->
+      <div id="tab-pressure" style="padding:20px;">
+        <div class="card" style="margin-bottom:16px;">
+          <div class="card-header">🗺️ Pressure Distribution Map (live)</div>
+          <div class="card-body" style="padding:8px;">
+            <canvas id="pressureCanvas" style="width:100%;height:300px;background:#0a0a0a;border-radius:4px;display:block;"></canvas>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div class="card">
+            <div class="card-header" style="font-size:11px;">Front Limbs (FL+FR)</div>
+            <div class="card-body">
+              <canvas id="frontCanvas" style="width:100%;height:100px;background:#0a0a0a;border-radius:4px;"></canvas>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header" style="font-size:11px;">Hind Limbs (HL+HR)</div>
+            <div class="card-body">
+              <canvas id="hindCanvas" style="width:100%;height:100px;background:#0a0a0a;border-radius:4px;"></canvas>
+            </div>
+          </div>
+        </div>
+        <p class="text-muted" style="margin-top:12px;font-size:12px;">ⓘ Initialize SDK then press <b>▶ Record</b> to begin pressure data acquisition.</p>
+      </div>
+
+      <!-- SDK Code -->
+      <div id="tab-request" style="display:none;">
+        <pre class="code-block">
+<span style="color:#7d8590"># ─── Tekscan Pressure Mapping SDK · Python Example ──────────────────────────</span>
+<span style="color:#7d8590"># SDK    : Tekscan Pressure Mapping SDK (COM/ActiveX wrapper via comtypes)</span>
+<span style="color:#7d8590"># Docs   : https://www.tekscan.com/products-solutions/software/pressure-mapping-software-development-kit-sdk</span>
+<span style="color:#7d8590"># System : Animal Strideway — 48×64 sensel array, 100 Hz</span>
+
+<span style="color:#ff7b72">import</span> comtypes.client <span style="color:#ff7b72">as</span> cc
+<span style="color:#ff7b72">import</span> numpy <span style="color:#ff7b72">as</span> np
+
+<span style="color:#7d8590"># ── 1. Load SDK COM object ────────────────────────────────────────────</span>
+sdk = cc.CreateObject(<span style="color:#a8ff78">"TekscanPressureMapping.API"</span>)
+sdk.Initialize()
+
+<span style="color:#7d8590"># ── 2. Open sensor ───────────────────────────────────────────────────</span>
+sensor = sdk.OpenSensor(sensor_id=<span style="color:#a5d6ff">0</span>)
+sensor.SetFrameRate(<span style="color:#a5d6ff">100</span>)      <span style="color:#7d8590"># Hz</span>
+sensor.SetCalibration(<span style="color:#a5d6ff">0.42</span>)    <span style="color:#7d8590"># N per sensel per raw unit</span>
+
+rows = sensor.Rows     <span style="color:#7d8590"># 48</span>
+cols = sensor.Columns  <span style="color:#7d8590"># 64</span>
+<span style="color:#79c0ff">print</span>(<span style="color:#a8ff78">f"Sensor: {rows}×{cols} sensels @ 100 Hz"</span>)
+
+<span style="color:#7d8590"># ── 3. Start acquisition ─────────────────────────────────────────────</span>
+sensor.StartAcquisition()
+
+<span style="color:#7d8590"># ── 4. Read frames ────────────────────────────────────────────────────</span>
+<span style="color:#ff7b72">for</span> frame_idx <span style="color:#ff7b72">in</span> <span style="color:#79c0ff">range</span>(<span style="color:#a5d6ff">1000</span>):
+    frame = sensor.GetFrame()
+    raw   = np.array(frame.Data, dtype=np.float32).reshape((rows, cols))
+    force = raw * <span style="color:#a5d6ff">0.42</span>         <span style="color:#7d8590"># N per sensel</span>
+    area  = np.sum(raw > <span style="color:#a5d6ff">0</span>)   <span style="color:#7d8590"># active sensels</span>
+
+    metrics = {
+        <span style="color:#a8ff78">"frame"</span>:        frame_idx,
+        <span style="color:#a8ff78">"timestamp_ms"</span>: frame.TimestampMs,
+        <span style="color:#a8ff78">"peak_force_N"</span>: <span style="color:#79c0ff">float</span>(force.max()),
+        <span style="color:#a8ff78">"total_force_N"</span>:<span style="color:#79c0ff">float</span>(force.sum()),
+        <span style="color:#a8ff78">"contact_cm2"</span>:  <span style="color:#79c0ff">float</span>(area * <span style="color:#a5d6ff">0.0154</span>),  <span style="color:#7d8590"># cm² per sensel</span>
+        <span style="color:#a8ff78">"cop_x"</span>:        <span style="color:#79c0ff">float</span>(np.average(np.arange(cols), weights=force.sum(axis=<span style="color:#a5d6ff">0</span>))),
+        <span style="color:#a8ff78">"cop_y"</span>:        <span style="color:#79c0ff">float</span>(np.average(np.arange(rows), weights=force.sum(axis=<span style="color:#a5d6ff">1</span>))),
+    }
+    <span style="color:#79c0ff">print</span>(metrics)
+
+<span style="color:#7d8590"># ── 5. Stop & export ─────────────────────────────────────────────────</span>
+sensor.StopAcquisition()
+sensor.ExportXML(<span style="color:#a8ff78">"gait_session.xml"</span>)   <span style="color:#7d8590"># standard FScan XML format</span>
+sdk.Close()
+</pre>
+      </div>
+
+      <!-- Frame Data -->
+      <div id="tab-response" style="display:none;">
+        <div id="frameJson" style="color:var(--text-muted);padding:40px;text-align:center;font-size:13px;">Click "📸 Capture Frame" to see frame data.</div>
+      </div>
+
+      <!-- XML Export -->
+      <div id="tab-export" style="display:none;">
+        <div id="xmlBlock" style="color:var(--text-muted);padding:40px;text-align:center;font-size:13px;">Click "📥 Export XML" to see the export.</div>
+      </div>
+    </div>
+
+    <div class="console-log" id="console"></div>
+  </div>
+</div>
+
+<script src="../js/utils.js"></script>
+<script src="../js/driver-base.js"></script>
+<script src="../js/mode-indicator.js"></script>
+<script src="../js/result-renderer.js"></script>
+<script src="../js/drivers/vemo-tekscan-vetscan.js"></script>
+<script>
+const log = new SandboxLogger('console');
+let streaming = false, streamTimer = null, frameCount = 0;
+let walkPhase = 0;
+
+document.querySelectorAll('.pane-tab').forEach(t => {
+  t.addEventListener('click', () => {
+    document.querySelectorAll('.pane-tab').forEach(x => x.classList.remove('active'));
+    document.querySelectorAll('.pane-content > div').forEach(x => x.style.display = 'none');
+    t.classList.add('active');
+    document.getElementById(t.dataset.target).style.display = 'block';
+  });
+});
+document.querySelector('.pane-tab.active').click();
+
+async function connectSDK() {
+  document.getElementById('connectBtn').disabled = true;
+  const rows = document.getElementById('rows').value;
+  const cols = document.getElementById('cols').value;
+  const system = document.getElementById('system').value;
+  log.info(`Initialising Tekscan SDK (${system})...`);
+  await delay(400);
+  log.info(`Opening sensor: ${rows}×${cols} sensels @ ${document.getElementById('frameRate').value} Hz`);
+  await delay(500);
+  log.success(`Sensor online. Sensitivity calibrated: ${document.getElementById('calib').value} N/sensel`);
+  ['startBtn','exportBtn','captureBtn','disconnectBtn'].forEach(id => document.getElementById(id).disabled = false);
+}
+
+function disconnectSDK() {
+  stopAcq();
+  log.warn('SDK closed. Sensor released.');
+  ['startBtn','stopBtn','exportBtn','captureBtn','disconnectBtn'].forEach(id => document.getElementById(id).disabled = true);
+  document.getElementById('connectBtn').disabled = false;
+}
+
+async function startAcq() {
+  const fr = document.getElementById('frameRate').value;
+  log.info(`StartAcquisition @ ${fr} Hz`);
+  await delay(200);
+  streaming = true; frameCount = 0; walkPhase = 0;
+  document.getElementById('startBtn').disabled = true;
+  document.getElementById('stopBtn').disabled = false;
+  log.success('Acquisition running. Walk animal across mat.');
+  streamLoop();
+}
+
+function stopAcq() {
+  streaming = false;
+  if (streamTimer) clearTimeout(streamTimer);
+  document.getElementById('startBtn').disabled = false;
+  document.getElementById('stopBtn').disabled = true;
+  log.warn('Acquisition stopped.');
+}
+
+function streamLoop() {
+  if (!streaming) return;
+  frameCount++;
+  walkPhase += 0.05;
+  renderPressure();
+  renderLimbPanels();
+  updateMetrics();
+  streamTimer = setTimeout(streamLoop, 40);
+}
+
+function pressureAt(row, col, rows, cols, phase) {
+  const cx = cols/2 + Math.sin(phase)*cols*0.15;
+  const cy = rows/2 + Math.cos(phase*0.7)*rows*0.1;
+  // Four paw pads
+  const paws = [
+    {x: cx-cols*0.15, y: cy-rows*0.2, r: cols*0.07, amp: 0.6+0.3*Math.sin(phase)},
+    {x: cx+cols*0.15, y: cy-rows*0.1, r: cols*0.07, amp: 0.5+0.4*Math.cos(phase)},
+    {x: cx-cols*0.12, y: cy+rows*0.18, r: cols*0.07, amp: 0.7+0.2*Math.sin(phase+1)},
+    {x: cx+cols*0.12, y: cy+rows*0.2,  r: cols*0.07, amp: 0.4+0.5*Math.cos(phase+2)},
+  ];
+  let v = 0;
+  for (const p of paws) {
+    const d = Math.sqrt((col-p.x)**2 + (row-p.y)**2);
+    if (d < p.r) v += p.amp * (1 - d/p.r) ** 2;
+  }
+  return Math.min(1, v);
+}
+
+function pressureColor(v) {
+  if (v < 0.01) return [10,10,10];
+  if (v < 0.2)  return [0,0,Math.round(v/0.2*200)];
+  if (v < 0.4)  return [0,Math.round((v-0.2)/0.2*200),200];
+  if (v < 0.6)  return [0,200,Math.round(200-(v-0.4)/0.2*200)];
+  if (v < 0.8)  return [Math.round((v-0.6)/0.2*255),200,0];
+  return [255,Math.round(200-(v-0.8)/0.2*200),0];
+}
+
+function renderPressure() {
+  const c = document.getElementById('pressureCanvas');
+  const W = c.offsetWidth||800, H = c.offsetHeight||300;
+  const rows = parseInt(document.getElementById('rows').value);
+  const cols = parseInt(document.getElementById('cols').value);
+  c.width = W; c.height = H;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle='#0a0a0a'; ctx.fillRect(0,0,W,H);
+  const cw = W/cols, ch = H/rows;
+  for (let r=0; r<rows; r++) {
+    for (let cl=0; cl<cols; cl++) {
+      const v = pressureAt(r, cl, rows, cols, walkPhase);
+      const [red,green,blue] = pressureColor(v);
+      ctx.fillStyle = `rgb(${red},${green},${blue})`;
+      ctx.fillRect(cl*cw, r*ch, cw-0.5, ch-0.5);
+    }
+  }
+  // Labels
+  ctx.fillStyle='rgba(255,255,255,0.6)'; ctx.font='11px monospace';
+  ctx.fillText(`Frame ${frameCount}  |  ${rows}×${cols} sensels`, 8, 16);
+}
+
+function renderLimbPanels() {
+  ['frontCanvas','hindCanvas'].forEach((id, idx) => {
+    const c = document.getElementById(id);
+    const W = c.offsetWidth||300, H = c.offsetHeight||100;
+    const rows=16, cols=20;
+    c.width=W; c.height=H;
+    const ctx=c.getContext('2d');
+    ctx.fillStyle='#0a0a0a'; ctx.fillRect(0,0,W,H);
+    const cw=W/cols, ch=H/rows;
+    const phaseOffset = idx===0 ? 0 : Math.PI;
+    for (let r=0;r<rows;r++) for (let cl=0;cl<cols;cl++) {
+      const v=pressureAt(r,cl,rows,cols,walkPhase+phaseOffset);
+      const [red,g,b]=pressureColor(v*0.8);
+      ctx.fillStyle=`rgb(${red},${g},${b})`;
+      ctx.fillRect(cl*cw,r*ch,cw-0.5,ch-0.5);
+    }
+  });
+}
+
+function updateMetrics() {
+  const calib = parseFloat(document.getElementById('calib').value);
+  const rows=parseInt(document.getElementById('rows').value), cols=parseInt(document.getElementById('cols').value);
+  let totalForce=0, activeCount=0, peakForce=0;
+  for(let r=0;r<rows;r++) for(let cl=0;cl<cols;cl++){
+    const v=pressureAt(r,cl,rows,cols,walkPhase)*5;
+    if(v>0.01){activeCount++; totalForce+=v*calib; peakForce=Math.max(peakForce,v*calib);}
+  }
+  document.getElementById('m-peak').textContent = peakForce.toFixed(1)+' N';
+  document.getElementById('m-area').textContent = (activeCount*0.0154).toFixed(1)+' cm²';
+  document.getElementById('m-total').textContent = totalForce.toFixed(1)+' N';
+  document.getElementById('m-stance').textContent = rand(180,350,0)+' ms';
+  document.getElementById('m-impulse').textContent = (totalForce*0.01).toFixed(2)+' N·s';
+  document.getElementById('m-frames').textContent = frameCount;
+}
+
+async function captureFrame() {
+  const rows=parseInt(document.getElementById('rows').value), cols=parseInt(document.getElementById('cols').value);
+  log.info('Capturing pressure frame...');
+  await delay(100);
+  const calib=parseFloat(document.getElementById('calib').value);
+  let peak=0,total=0,active=0,copX=0,copY=0;
+  const matSample = [];
+  for(let r=0;r<Math.min(rows,8);r++){
+    const row=[];
+    for(let cl=0;cl<Math.min(cols,8);cl++){
+      const v=parseFloat((pressureAt(r,cl,rows,cols,walkPhase)*5*calib).toFixed(3));
+      row.push(v); total+=v; if(v>0.01){active++;copX+=cl*v;copY+=r*v;}
+      peak=Math.max(peak,v);
+    }
+    matSample.push(row);
+  }
+  if(total>0){copX=parseFloat((copX/total).toFixed(2));copY=parseFloat((copY/total).toFixed(2));}
+  const resp = {
+    frame_id: `f_${frameCount}`,
+    timestamp_ms: Date.now(),
+    timestamp_iso: nowISO(),
+    sensor_rows: rows, sensor_cols: cols,
+    calibration_n_per_raw: calib,
+    peak_force_N: parseFloat(peak.toFixed(3)),
+    total_force_N: parseFloat(total.toFixed(3)),
+    active_sensels: active,
+    contact_area_cm2: parseFloat((active*0.0154).toFixed(3)),
+    center_of_pressure: {x_sensel: copX, y_sensel: copY},
+    sample_matrix_8x8: matSample,
+    note: "Full matrix omitted for brevity"
+  };
+  document.getElementById('frameJson').innerHTML = renderTekscanFrame(resp);
+  document.querySelector('[data-target="tab-response"]').click();
+  log.success(`Frame ${frameCount}: peak=${resp.peak_force_N}N total=${resp.total_force_N}N area=${resp.contact_area_cm2}cm²`);
+}
+
+async function exportData() {
+  log.info('Exporting FScan XML...');
+  await delay(400);
+  const rows=document.getElementById('rows').value, cols=document.getElementById('cols').value;
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<FScan version="9.0" xmlns="urn:tekscan:fscan">
+  <Session id="SESS-${Date.now()}" created="${nowISO()}">
+    <Animal>
+      <Species>${document.getElementById('species').value}</Species>
+      <System>${document.getElementById('system').value}</System>
+    </Animal>
+    <SensorConfig rows="${rows}" cols="${cols}" frameRate="${document.getElementById('frameRate').value}"
+      calibration="${document.getElementById('calib').value}" unit="N" senselArea_cm2="0.0154"/>
+    <Frames totalFrames="${frameCount}">
+      <!-- Frame data: each Frame contains a flat array of ${rows}x${cols} float values in N -->
+      <Frame index="0" timestamp_ms="0">
+        <Data><!-- ${rows}x${cols} float32 values --></Data>
+        <Metrics>
+          <PeakForce unit="N">${rand(8,25,2)}</PeakForce>
+          <TotalForce unit="N">${rand(40,120,2)}</TotalForce>
+          <ContactArea unit="cm2">${rand(10,35,2)}</ContactArea>
+          <CenterOfPressure x="${rand(20,44,1)}" y="${rand(16,32,1)}" unit="sensel"/>
+        </Metrics>
+      </Frame>
+    </Frames>
+    <GaitEvents>
+      <StrikeEvent limb="FL" frame="5" force_N="${rand(5,20,1)}"/>
+      <StrikeEvent limb="FR" frame="12" force_N="${rand(5,20,1)}"/>
+      <StrikeEvent limb="HL" frame="22" force_N="${rand(5,20,1)}"/>
+      <StrikeEvent limb="HR" frame="28" force_N="${rand(5,20,1)}"/>
+    </GaitEvents>
+  </Session>
+</FScan>`;
+  document.getElementById('xmlBlock').innerHTML = `
+    <div style="padding:16px 20px;">
+      <div style="font-size:10px;font-weight:700;letter-spacing:.7px;text-transform:uppercase;
+        color:var(--text-muted);margin-bottom:10px;">FScan XML Export</div>
+      <div style="display:flex;gap:8px;margin-bottom:10px;">
+        <span style="background:var(--surface-2);border:1px solid var(--border);border-radius:4px;
+          padding:4px 10px;font-size:11px;">Format: FScan v9.0</span>
+        <span style="background:var(--surface-2);border:1px solid var(--border);border-radius:4px;
+          padding:4px 10px;font-size:11px;">Frames: ${frameCount}</span>
+        <span style="background:var(--surface-2);border:1px solid var(--border);border-radius:4px;
+          padding:4px 10px;font-size:11px;">Size: ${fmtBytes(xml.length)}</span>
+      </div>
+      <pre style="font-family:var(--font-mono);font-size:11px;line-height:1.6;
+        background:var(--bg);border:1px solid var(--border);border-radius:6px;
+        padding:12px;overflow-x:auto;white-space:pre-wrap;">${xml.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre>
+    </div>`;
+  document.querySelector('[data-target="tab-export"]').click();
+  log.success(`XML exported: ${frameCount} frames, ${fmtBytes(xml.length)}`);
+}
+</script>
+</body>
+</html>

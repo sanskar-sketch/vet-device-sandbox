@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script src="../js/access-gate.js"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<title>Clarius C7 Vet HD3 · Sandbox</title>
+<link rel="stylesheet" href="../css/shared.css">
+<link rel="stylesheet" href="../css/redesign.css?v=1">
+</head>
+<body>
+<header class="page-header">
+  <a href="../index.html" class="back-link">← All Devices</a>
+  <h1>🔊 Clarius C7 Vet HD3 — Veterinary Ultrasound</h1>
+  <span class="device-badge" style="background:#0a2a1a;color:#3fb950;">Ultrasound / Cast API</span>
+</header>
+
+<div class="sandbox-layout">
+  <aside class="sidebar">
+    <div class="card">
+      <div class="card-header">📡 Cast API Connection</div>
+      <div class="card-body controls">
+        <div class="form-group">
+          <label>Probe IP Address</label>
+          <input type="text" id="probeIp" value="192.168.1.1">
+        </div>
+        <div class="form-group">
+          <label>Cast Port</label>
+          <input type="number" id="castPort" value="5828">
+        </div>
+        <div class="form-group">
+          <label>Image Width (px)</label>
+          <input type="number" id="imgWidth" value="640">
+        </div>
+        <div class="form-group">
+          <label>Image Height (px)</label>
+          <input type="number" id="imgHeight" value="480">
+        </div>
+        <p class="text-muted" style="font-size:11px;">⚠️ Clarius App must be running and connected to probe before Cast API can connect.</p>
+        <button class="btn btn-primary btn-full" id="connectBtn" onclick="connectCast()">▶ Connect Cast API</button>
+        <button class="btn btn-secondary btn-full" id="disconnectBtn" onclick="disconnectCast()" disabled>■ Disconnect</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">⚙️ Imaging Controls</div>
+      <div class="card-body controls">
+        <div class="form-group">
+          <label>Imaging Mode</label>
+          <select id="imagingMode">
+            <option value="bmode">B-Mode (Brightness)</option>
+            <option value="mmode">M-Mode</option>
+            <option value="doppler">Color Doppler</option>
+            <option value="pdi">Power Doppler (PDI)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Depth (cm)</label>
+          <input type="number" id="depth" value="8" min="2" max="18" step="0.5">
+        </div>
+        <div class="form-group">
+          <label>Gain (%)</label>
+          <input type="number" id="gain" value="50" min="0" max="100">
+        </div>
+        <button class="btn btn-blue btn-full" id="streamBtn" onclick="startStream()" disabled>▶ Start Image Stream</button>
+        <button class="btn btn-secondary btn-full" id="freezeBtn" onclick="freezeImaging()" disabled>❄ Freeze</button>
+        <button class="btn btn-secondary btn-full" id="captureBtn" onclick="captureRawData()" disabled>📥 Capture Raw IQ/RF</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">📊 Stream Metrics</div>
+      <div class="card-body">
+        <table style="width:100%;font-size:12px;border-collapse:collapse;line-height:2.1;">
+          <tr><td class="text-muted">Frame Rate</td><td class="text-mono" id="m-fps">—</td></tr>
+          <tr><td class="text-muted">Frame #</td><td class="text-mono" id="m-frame">—</td></tr>
+          <tr><td class="text-muted">Image Size</td><td class="text-mono" id="m-size">—</td></tr>
+          <tr><td class="text-muted">Depth</td><td class="text-mono" id="m-depth">—</td></tr>
+          <tr><td class="text-muted">Mode</td><td class="text-mono" id="m-mode">—</td></tr>
+          <tr><td class="text-muted">Network</td><td class="text-mono" id="m-net">—</td></tr>
+        </table>
+      </div>
+    </div>
+  </aside>
+
+  <div class="main-panel">
+    <div class="pane-tabs">
+      <div class="pane-tab active" data-target="tab-live">B-Mode View</div>
+      <div class="pane-tab" data-target="tab-request">Cast API Code</div>
+      <div class="pane-tab" data-target="tab-response">Frame Data</div>
+      <div class="pane-tab" data-target="tab-raw">Raw IQ/RF</div>
+      <div class="pane-tab" data-target="tab-imu">IMU</div>
+    </div>
+    <div class="pane-content" style="flex:1;overflow:auto;">
+
+      <!-- B-Mode View -->
+      <div id="tab-live" style="padding:20px;">
+        <div class="card">
+          <div class="card-header">🔊 Ultrasound B-Mode Image — C7 Vet HD3 (3–10 MHz, 18 cm max)</div>
+          <div class="card-body" style="padding:8px;">
+            <canvas id="usCanvas" style="width:100%;height:320px;background:#000;border-radius:4px;display:block;"></canvas>
+          </div>
+        </div>
+        <p class="text-muted" style="margin-top:12px;font-size:12px;">ⓘ Connect via Cast API then press <b>▶ Start Image Stream</b> to receive B-mode frames.</p>
+      </div>
+
+      <!-- Cast API Code -->
+      <div id="tab-request" style="display:none;">
+        <pre class="code-block">
+<span style="color:#7d8590"># ─── Clarius Cast API · Python Example ─────────────────────────────────────</span>
+<span style="color:#7d8590"># SDK    : pyclariuscast  (from clariusdev/cast releases)</span>
+<span style="color:#7d8590"># Docs   : https://github.com/clariusdev/cast</span>
+<span style="color:#7d8590"># Prereq : Clarius App must be running and connected to the C7 Vet HD3 probe</span>
+<span style="color:#7d8590"># Network: PC and probe on same Wi-Fi (SSID: DIRECT-xxxxxxxx)</span>
+
+<span style="color:#ff7b72">import</span> pyclariuscast <span style="color:#ff7b72">as</span> clarius
+<span style="color:#ff7b72">import</span> numpy <span style="color:#ff7b72">as</span> np
+
+PROBE_IP   = <span style="color:#a8ff78">"192.168.1.1"</span>
+CAST_PORT  = <span style="color:#a5d6ff">5828</span>
+IMG_W, IMG_H = <span style="color:#a5d6ff">640</span>, <span style="color:#a5d6ff">480</span>
+
+<span style="color:#7d8590"># ── Callbacks ──────────────────────────────────────────────────────────</span>
+<span style="color:#ff7b72">def</span> <span style="color:#79c0ff">new_image_fn</span>(image, width, height, bpp, sz, imu):
+    <span style="color:#a8ff78">"""Called for every new B-mode or Doppler frame."""</span>
+    frame = np.frombuffer(image, dtype=np.uint8).reshape((height, width, bpp//8))
+    <span style="color:#79c0ff">print</span>(<span style="color:#a8ff78">f"Frame: {width}×{height}  {bpp}bpp  {sz} bytes  ts={imu.timestamp}"</span>)
+
+<span style="color:#ff7b72">def</span> <span style="color:#79c0ff">new_raw_image_fn</span>(image, lines, samples, bpp, lateral, axial, imu):
+    <span style="color:#a8ff78">"""Called for raw (polar-coordinate) IQ/RF frames when frozen."""</span>
+    <span style="color:#79c0ff">print</span>(<span style="color:#a8ff78">f"Raw: {lines} lines × {samples} samples, lateral={lateral:.2f} mm, axial={axial:.2f} mm"</span>)
+
+<span style="color:#ff7b72">def</span> <span style="color:#79c0ff">freeze_fn</span>(frozen):
+    <span style="color:#79c0ff">print</span>(<span style="color:#a8ff78">f"Imaging {'FROZEN' if frozen else 'LIVE'}"</span>)
+
+<span style="color:#ff7b72">def</span> <span style="color:#79c0ff">button_fn</span>(button, clicks):
+    <span style="color:#79c0ff">print</span>(<span style="color:#a8ff78">f"Probe button {button} pressed {clicks} times"</span>)
+
+<span style="color:#7d8590"># ── Initialize Cast API ────────────────────────────────────────────────</span>
+ret = clarius.init(
+    width      = IMG_W,
+    height     = IMG_H,
+    new_image  = new_image_fn,
+    new_raw    = new_raw_image_fn,
+    freeze     = freeze_fn,
+    button     = button_fn,
+)
+<span style="color:#ff7b72">if</span> ret != <span style="color:#a5d6ff">0</span>:
+    <span style="color:#ff7b72">raise</span> RuntimeError(<span style="color:#a8ff78">f"Cast API init failed: {ret}"</span>)
+
+<span style="color:#7d8590"># ── Connect to probe ───────────────────────────────────────────────────</span>
+ret = clarius.connect(PROBE_IP, CAST_PORT)
+<span style="color:#ff7b72">if</span> ret != <span style="color:#a5d6ff">0</span>:
+    <span style="color:#ff7b72">raise</span> RuntimeError(<span style="color:#a8ff78">f"Connection failed: {ret}"</span>)
+<span style="color:#79c0ff">print</span>(<span style="color:#a8ff78">"Connected — streaming B-mode images"</span>)
+
+<span style="color:#7d8590"># ── Adjust imaging parameters ──────────────────────────────────────────</span>
+clarius.user_function(<span style="color:#a8ff78">"depth"</span>, <span style="color:#a5d6ff">8</span>)    <span style="color:#7d8590"># depth = 8 cm</span>
+clarius.user_function(<span style="color:#a8ff78">"gain"</span>,  <span style="color:#a5d6ff">50</span>)   <span style="color:#7d8590"># gain  = 50%</span>
+
+<span style="color:#7d8590"># ── Run until Enter pressed ────────────────────────────────────────────</span>
+<span style="color:#79c0ff">input</span>(<span style="color:#a8ff78">"Press Enter to freeze and capture raw data...\n"</span>)
+clarius.user_function(<span style="color:#a8ff78">"freeze"</span>, <span style="color:#a5d6ff">1</span>)
+
+<span style="color:#7d8590"># ── Request raw IQ data (probe must be frozen) ─────────────────────────</span>
+clarius.request_raw_data()   <span style="color:#7d8590"># triggers new_raw_image_fn callback</span>
+
+<span style="color:#7d8590"># ── Disconnect ────────────────────────────────────────────────────────</span>
+clarius.disconnect()
+clarius.destroy()
+</pre>
+      </div>
+
+      <!-- Frame Data -->
+      <div id="tab-response" style="display:none;">
+        <div id="frameJson" style="color:var(--text-muted);padding:40px;text-align:center;font-size:13px;">Start streaming to see frame data.</div>
+      </div>
+
+      <!-- Raw IQ/RF -->
+      <div id="tab-raw" style="display:none;">
+        <div id="rawJson" style="color:var(--text-muted);padding:40px;text-align:center;font-size:13px;">Freeze imaging then click "Capture Raw IQ/RF".</div>
+      </div>
+
+      <!-- IMU -->
+      <div id="tab-imu" style="display:none;">
+        <div id="imuJson" style="color:var(--text-muted);padding:40px;text-align:center;font-size:13px;">IMU data is delivered with each frame callback.</div>
+      </div>
+    </div>
+
+    <div class="console-log" id="console"></div>
+  </div>
+</div>
+
+<script src="../js/utils.js"></script>
+<script src="../js/driver-base.js"></script>
+<script src="../js/mode-indicator.js"></script>
+<script src="../js/result-renderer.js"></script>
+<script src="../js/drivers/clarius.js"></script>
+<script>
+const log = new SandboxLogger('console');
+let streaming = false, streamTimer = null, frameCount = 0, frozen = false;
+const usCtx = document.getElementById('usCanvas').getContext('2d');
+
+document.querySelectorAll('.pane-tab').forEach(t => {
+  t.addEventListener('click', () => {
+    document.querySelectorAll('.pane-tab').forEach(x => x.classList.remove('active'));
+    document.querySelectorAll('.pane-content > div').forEach(x => x.style.display = 'none');
+    t.classList.add('active');
+    document.getElementById(t.dataset.target).style.display = 'block';
+  });
+});
+document.querySelector('.pane-tab.active').click();
+
+async function connectCast() {
+  document.getElementById('connectBtn').disabled = true;
+  const ip = document.getElementById('probeIp').value;
+  const port = document.getElementById('castPort').value;
+  log.info(`Initialising pyclariuscast (width=640, height=480)...`);
+  await delay(400);
+  log.info(`Connecting TCP to ${ip}:${port}...`);
+  await delay(700);
+  log.success('Cast API connected. Probe: C7 Vet HD3  FW: 12.2.4  Elements: 192');
+  log.info('B-mode stream active. Receiving image callbacks.');
+  ['streamBtn','freezeBtn','captureBtn','disconnectBtn'].forEach(id => document.getElementById(id).disabled = false);
+}
+
+function disconnectCast() {
+  stopStream();
+  log.warn('Disconnecting Cast API...');
+  ['streamBtn','freezeBtn','captureBtn','disconnectBtn'].forEach(id => document.getElementById(id).disabled = true);
+  document.getElementById('connectBtn').disabled = false;
+  log.warn('Disconnected. pyclariuscast destroyed.');
+}
+
+async function startStream() {
+  const depth = document.getElementById('depth').value;
+  const gain = document.getElementById('gain').value;
+  const mode = document.getElementById('imagingMode').value;
+  log.info(`Setting depth=${depth}cm gain=${gain}% mode=${mode}`);
+  await delay(200);
+  frozen = false;
+  streaming = true; frameCount = 0;
+  document.getElementById('streamBtn').disabled = true;
+  log.success('Image stream started.');
+  streamLoop();
+}
+
+function stopStream() {
+  streaming = false;
+  if (streamTimer) clearTimeout(streamTimer);
+  document.getElementById('streamBtn').disabled = false;
+}
+
+function streamLoop() {
+  if (!streaming) return;
+  if (!frozen) {
+    frameCount++;
+    renderUltrasound();
+    document.getElementById('m-fps').textContent = rand(25,30,1) + ' fps';
+    document.getElementById('m-frame').textContent = frameCount;
+    document.getElementById('m-size').textContent = document.getElementById('imgWidth').value + '×' + document.getElementById('imgHeight').value;
+    document.getElementById('m-depth').textContent = document.getElementById('depth').value + ' cm';
+    document.getElementById('m-mode').textContent = document.getElementById('imagingMode').value.toUpperCase();
+    document.getElementById('m-net').textContent = 'Wi-Fi DIRECT';
+    // auto-update frame data
+    updateFrameData();
+  }
+  streamTimer = setTimeout(streamLoop, 80);
+}
+
+function renderUltrasound() {
+  const c = document.getElementById('usCanvas');
+  const w = c.offsetWidth || 640, h = c.offsetHeight || 320;
+  c.width = w; c.height = h;
+  const ctx = usCtx;
+  // Dark background
+  ctx.fillStyle = '#000'; ctx.fillRect(0,0,w,h);
+  // Simulate fan-shaped B-mode sector
+  const cx = w/2, cy = -h*0.3;
+  const r1 = h*0.35, r2 = h*1.2;
+  const startAngle = Math.PI*0.55, endAngle = Math.PI*0.45;
+  for (let r = r1; r < r2; r += 1.5) {
+    for (let a = startAngle; a < Math.PI - startAngle + endAngle; a += 0.008) {
+      const x = cx + r * Math.cos(a);
+      const y = cy + r * Math.sin(a);
+      if (x<0||x>w||y<0||y>h) continue;
+      const speckle = Math.random();
+      const echo = speckle > 0.97 ? 200+Math.random()*55 :
+                   speckle > 0.90 ? 80+Math.random()*80 :
+                   speckle > 0.60 ? 20+Math.random()*40 :
+                                     Math.random()*15;
+      const bright = Math.round(echo);
+      ctx.fillStyle = `rgb(${bright},${bright},${bright})`;
+      ctx.fillRect(x, y, 1.5, 1.5);
+    }
+  }
+  // Depth markers
+  ctx.strokeStyle='rgba(0,200,100,0.4)'; ctx.lineWidth=0.5;
+  const depth = parseFloat(document.getElementById('depth').value);
+  for (let d=1; d<=depth; d++) {
+    const ry = cy + r1 + (r2-r1)*(d/depth);
+    ctx.beginPath(); ctx.arc(cx, cy, ry, startAngle, Math.PI-startAngle+endAngle); ctx.stroke();
+    ctx.fillStyle='rgba(0,200,100,0.7)'; ctx.font='10px monospace';
+    ctx.fillText(d+'cm', 8, cy+ry+4);
+  }
+  // Freeze overlay
+  if (frozen) {
+    ctx.fillStyle='rgba(0,150,255,0.15)'; ctx.fillRect(0,0,w,h);
+    ctx.fillStyle='#58a6ff'; ctx.font='bold 16px sans-serif'; ctx.textAlign='center';
+    ctx.fillText('❄ FROZEN', w/2, 24); ctx.textAlign='left';
+  }
+}
+
+function updateFrameData() {
+  const resp = {
+    callback: "new_image_fn",
+    frame_number: frameCount,
+    timestamp_us: Date.now() * 1000,
+    timestamp_iso: nowISO(),
+    width: parseInt(document.getElementById('imgWidth').value),
+    height: parseInt(document.getElementById('imgHeight').value),
+    bits_per_pixel: 8,
+    data_size_bytes: parseInt(document.getElementById('imgWidth').value) * parseInt(document.getElementById('imgHeight').value),
+    imaging_mode: document.getElementById('imagingMode').value,
+    depth_cm: parseFloat(document.getElementById('depth').value),
+    gain_pct: parseInt(document.getElementById('gain').value),
+    imu: {
+      timestamp_us: Date.now() * 1000,
+      accel: { x: rand(-0.05,0.05,4), y: rand(-0.05,0.05,4), z: rand(0.97,1.03,4) },
+      gyro:  { x: rand(-0.3,0.3,3),  y: rand(-0.3,0.3,3),  z: rand(-0.3,0.3,3) }
+    }
+  };
+  document.getElementById('frameJson').innerHTML = renderClariusFrame(resp);
+  document.getElementById('imuJson').innerHTML   = renderOrbbecIMU({
+    accelerometer:{x_g:resp.imu.accel.x,y_g:resp.imu.accel.y,z_g:resp.imu.accel.z,sample_rate_hz:200},
+    gyroscope:{x_dps:resp.imu.gyro.x,y_dps:resp.imu.gyro.y,z_dps:resp.imu.gyro.z,sample_rate_hz:200},
+    temperature_c:rand(30,36,1)
+  });
+}
+
+async function freezeImaging() {
+  frozen = !frozen;
+  document.getElementById('freezeBtn').textContent = frozen ? '▶ Unfreeze' : '❄ Freeze';
+  log.info(frozen ? 'Imaging FROZEN — raw data capture available.' : 'Imaging LIVE.');
+  renderUltrasound();
+}
+
+async function captureRawData() {
+  if (!frozen) { log.warn('Freeze imaging first before capturing raw IQ/RF data.'); return; }
+  log.info('Requesting raw IQ data from probe...');
+  await delay(500);
+  const lines = 128, samples = 1024;
+  const resp = {
+    callback: "new_raw_image_fn",
+    timestamp_iso: nowISO(),
+    format: "IQ_float32",
+    lines: lines,
+    samples_per_line: samples,
+    total_samples: lines * samples,
+    data_size_bytes: lines * samples * 2 * 4,
+    lateral_spacing_mm: rand(0.18,0.22,4),
+    axial_spacing_mm: rand(0.045,0.055,4),
+    center_frequency_mhz: rand(6.5,8.5,2),
+    sample_rate_mhz: rand(40,60,1),
+    depth_start_mm: 0,
+    depth_end_mm: parseFloat(document.getElementById('depth').value)*10,
+    note: "IQ data delivered as pairs: [I0,Q0, I1,Q1, ...] float32"
+  };
+  document.getElementById('rawJson').innerHTML = renderClariusRawIQ(resp);
+  document.querySelector('[data-target="tab-raw"]').click();
+  log.success(`Raw IQ: ${lines} lines × ${samples} samples, ${fmtBytes(resp.data_size_bytes)}`);
+}
+</script>
+</body>
+</html>

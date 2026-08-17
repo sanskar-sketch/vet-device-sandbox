@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script src="../js/access-gate.js"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<title>FLIR A40/A50/A70 · Sandbox</title>
+<link rel="stylesheet" href="../css/shared.css">
+<link rel="stylesheet" href="../css/redesign.css?v=1">
+</head>
+<body>
+<header class="page-header">
+  <a href="../index.html" class="back-link">← All Devices</a>
+  <h1>🌡️ FLIR A40 / A50 / A70 — Thermal Imaging Camera</h1>
+  <span class="device-badge" style="background:#3a1a0a;color:#ff9a3c;">Thermal / REST</span>
+</header>
+
+<div class="sandbox-layout">
+  <aside class="sidebar">
+    <div class="card">
+      <div class="card-header">📡 Connection</div>
+      <div class="card-body controls">
+        <div class="form-group">
+          <label>Camera Model</label>
+          <select id="model">
+            <option value="A40">FLIR A40 (320×240)</option>
+            <option value="A50">FLIR A50 (464×348)</option>
+            <option value="A70" selected>FLIR A70 (640×480)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Camera IP Address</label>
+          <input type="text" id="cameraIp" value="192.168.0.100">
+        </div>
+        <div class="form-group">
+          <label>Base URL</label>
+          <input type="text" id="baseUrl" value="http://192.168.0.100/api" readonly style="color:var(--text-muted);">
+        </div>
+        <button class="btn btn-primary btn-full" id="connectBtn" onclick="connectCamera()">▶ Connect</button>
+        <button class="btn btn-secondary btn-full" id="disconnectBtn" onclick="disconnectCamera()" disabled>■ Disconnect</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">🎯 Endpoints</div>
+      <div class="card-body controls">
+        <div class="form-group">
+          <label>Image Format</label>
+          <select id="imgFormat">
+            <option value="JPEG">JPEG (visual)</option>
+            <option value="RJPEG">RJPEG (radiometric)</option>
+            <option value="VISIBLE">VISIBLE</option>
+          </select>
+        </div>
+        <button class="btn btn-blue btn-full" id="imgBtn" onclick="getImage()" disabled>
+          GET /image/current
+        </button>
+        <div class="divider"></div>
+        <div class="form-group">
+          <label>Spot ROI Instance #</label>
+          <input type="number" id="spotInstance" value="1" min="1" max="10">
+        </div>
+        <div class="form-group">
+          <label>Temperature Unit</label>
+          <select id="tempUnit">
+            <option value="C">Celsius (°C)</option>
+            <option value="F">Fahrenheit (°F)</option>
+            <option value="K">Kelvin (K)</option>
+          </select>
+        </div>
+        <button class="btn btn-secondary btn-full" id="spotBtn" onclick="getSpot()" disabled>GET /spot/{n}.json</button>
+        <button class="btn btn-secondary btn-full" id="boxBtn" onclick="getBox()" disabled>GET /box/{n}.json</button>
+        <button class="btn btn-secondary btn-full" id="lineBtn" onclick="getLine()" disabled>GET /line/{n}.json</button>
+        <button class="btn btn-secondary btn-full" id="alarmBtn" onclick="getAlarms()" disabled>GET /alarms</button>
+        <button class="btn btn-secondary btn-full" id="tempBtn" onclick="getTempSensor()" disabled>GET /tempsensor/{n}.json</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">📊 Live Readings</div>
+      <div class="card-body">
+        <table style="width:100%;font-size:12px;border-collapse:collapse;line-height:2.1;">
+          <tr><td class="text-muted">Spot 1 Temp</td><td class="text-mono" id="m-spot">—</td></tr>
+          <tr><td class="text-muted">Box Max</td><td class="text-mono" id="m-boxmax">—</td></tr>
+          <tr><td class="text-muted">Box Min</td><td class="text-mono" id="m-boxmin">—</td></tr>
+          <tr><td class="text-muted">Box Avg</td><td class="text-mono" id="m-boxavg">—</td></tr>
+          <tr><td class="text-muted">Alarm State</td><td class="text-mono" id="m-alarm">—</td></tr>
+        </table>
+      </div>
+    </div>
+  </aside>
+
+  <div class="main-panel">
+    <div class="pane-tabs">
+      <div class="pane-tab active" data-target="tab-live">Thermal View</div>
+      <div class="pane-tab" data-target="tab-request">HTTP Request</div>
+      <div class="pane-tab" data-target="tab-response">JSON Response</div>
+      <div class="pane-tab" data-target="tab-code">Python Code</div>
+    </div>
+    <div class="pane-content" style="flex:1;overflow:auto;">
+
+      <!-- Thermal View -->
+      <div id="tab-live" style="padding:20px;">
+        <div class="card" style="margin-bottom:16px;">
+          <div class="card-header">🌡️ Thermal Image (false-color)</div>
+          <div class="card-body" style="padding:8px;">
+            <canvas id="thermalCanvas" style="width:100%;height:260px;background:#000;border-radius:4px;display:block;"></canvas>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
+          <div class="card">
+            <div class="card-header" style="font-size:11px;">🔴 Hotspot</div>
+            <div class="card-body" style="font-size:22px;font-weight:700;color:#ff7043;text-align:center;" id="hotspot">—</div>
+          </div>
+          <div class="card">
+            <div class="card-header" style="font-size:11px;">🔵 Coldspot</div>
+            <div class="card-body" style="font-size:22px;font-weight:700;color:#58a6ff;text-align:center;" id="coldspot">—</div>
+          </div>
+          <div class="card">
+            <div class="card-header" style="font-size:11px;">⚪ Average</div>
+            <div class="card-body" style="font-size:22px;font-weight:700;color:#aaa;text-align:center;" id="avgtemp">—</div>
+          </div>
+        </div>
+        <p class="text-muted" style="margin-top:12px;font-size:12px;">ⓘ Connect then use <b>GET /image/current</b> to trigger a render, or call spot/box endpoints.</p>
+      </div>
+
+      <!-- HTTP Request -->
+      <div id="tab-request" style="display:none;">
+        <pre class="code-block" id="reqBlock">// Select an endpoint from the sidebar to see the HTTP request here.</pre>
+      </div>
+
+      <!-- JSON Response -->
+      <div id="tab-response" style="display:none;">
+        <div id="respBlock" style="color:var(--text-muted);padding:40px;text-align:center;font-size:13px;">Select an endpoint from the sidebar to see results.</div>
+      </div>
+
+      <!-- Python Code -->
+      <div id="tab-code" style="display:none;">
+        <pre class="code-block">
+<span style="color:#7d8590"># ─── FLIR A40/A50/A70 REST API · Python Example ────────────────────────────</span>
+<span style="color:#7d8590"># Base URL: http://{camera_ip}/api</span>
+<span style="color:#7d8590"># No auth required on LAN (configure camera firewall if needed)</span>
+
+<span style="color:#ff7b72">import</span> requests, json
+
+CAMERA_IP  = <span style="color:#a8ff78">"192.168.0.100"</span>
+BASE_URL   = <span style="color:#a8ff78">f"http://{CAMERA_IP}/api"</span>
+TEMP_UNIT  = <span style="color:#a8ff78">"C"</span>   <span style="color:#7d8590"># C | F | K</span>
+
+<span style="color:#7d8590"># ── 1. GET current thermal image ───────────────────────────────────────</span>
+r = requests.get(<span style="color:#a8ff78">f"{BASE_URL}/image/current"</span>,
+    params={<span style="color:#a8ff78">"imgformat"</span>: <span style="color:#a8ff78">"RJPEG"</span>, <span style="color:#a8ff78">"width"</span>: 640, <span style="color:#a8ff78">"height"</span>: 480})
+<span style="color:#79c0ff">print</span>(<span style="color:#a8ff78">f"Image {r.status_code}: {len(r.content)} bytes"</span>)
+<span style="color:#ff7b72">with</span> <span style="color:#79c0ff">open</span>(<span style="color:#a8ff78">"thermal.rjpeg"</span>, <span style="color:#a8ff78">"wb"</span>) <span style="color:#ff7b72">as</span> f: f.write(r.content)
+
+<span style="color:#7d8590"># ── 2. GET spot temperature measurement ────────────────────────────────</span>
+r = requests.get(<span style="color:#a8ff78">f"{BASE_URL}/spot/1.json"</span>,
+    params={<span style="color:#a8ff78">"tempUnit"</span>: TEMP_UNIT, <span style="color:#a8ff78">"pretty"</span>: <span style="color:#ffaa44">True</span>})
+spot = r.json()
+<span style="color:#79c0ff">print</span>(<span style="color:#a8ff78">f"Spot1: {spot['temperature']} {spot['unit']} at ({spot['x']},{spot['y']})"</span>)
+
+<span style="color:#7d8590"># ── 3. GET box ROI statistics ───────────────────────────────────────────</span>
+r   = requests.get(<span style="color:#a8ff78">f"{BASE_URL}/box/1.json"</span>, params={<span style="color:#a8ff78">"tempUnit"</span>: TEMP_UNIT})
+box = r.json()
+<span style="color:#79c0ff">print</span>(<span style="color:#a8ff78">f"Box1 : max={box['max']} min={box['min']} avg={box['avg']} {box['unit']}"</span>)
+
+<span style="color:#7d8590"># ── 4. GET line temperature profile ────────────────────────────────────</span>
+r    = requests.get(<span style="color:#a8ff78">f"{BASE_URL}/line/1.json"</span>, params={<span style="color:#a8ff78">"tempUnit"</span>: TEMP_UNIT})
+line = r.json()
+<span style="color:#79c0ff">print</span>(<span style="color:#a8ff78">f"Line1: {len(line['points'])} points, max={line['max']}"</span>)
+
+<span style="color:#7d8590"># ── 5. GET all alarms ──────────────────────────────────────────────────</span>
+r      = requests.get(<span style="color:#a8ff78">f"{BASE_URL}/alarms"</span>, params={<span style="color:#a8ff78">"pretty"</span>: <span style="color:#ffaa44">True</span>})
+alarms = r.json()[<span style="color:#a8ff78">"alarms"</span>]
+<span style="color:#ff7b72">for</span> a <span style="color:#ff7b72">in</span> alarms:
+    <span style="color:#79c0ff">print</span>(<span style="color:#a8ff78">f"Alarm '{a['name']}': {a['state']} triggered={a['triggered']}"</span>)
+
+<span style="color:#7d8590"># ── 6. GET internal temperature sensor ─────────────────────────────────</span>
+r      = requests.get(<span style="color:#a8ff78">f"{BASE_URL}/tempsensor/1.json"</span>, params={<span style="color:#a8ff78">"tempUnit"</span>: TEMP_UNIT})
+sensor = r.json()
+<span style="color:#79c0ff">print</span>(<span style="color:#a8ff78">f"Sensor: {sensor['name']} = {sensor['temperature']} {sensor['unit']}"</span>)
+</pre>
+      </div>
+    </div>
+
+    <div class="console-log" id="console"></div>
+  </div>
+</div>
+
+<script src="../js/utils.js"></script>
+<script src="../js/driver-base.js"></script>
+<script src="../js/mode-indicator.js"></script>
+<script src="../js/result-renderer.js"></script>
+<script src="../js/drivers/flir.js"></script>
+<script>
+const log = new SandboxLogger('console');
+let driver = null, liveTimer = null;
+
+// Tab switching
+document.getElementById('cameraIp').addEventListener('input', function() {
+  document.getElementById('baseUrl').value = 'http://' + this.value + '/api';
+  DeviceConfig.flir.ip = this.value;
+});
+
+async function connectCamera() {
+  document.getElementById('connectBtn').disabled = true;
+  try {
+    // Update config from UI
+    DeviceConfig.flir.ip = document.getElementById('cameraIp').value;
+    DeviceConfig.flir.tempUnit = document.getElementById('tempUnit').value;
+    
+    driver = DriverFactory.get("flir");
+    
+    log.info(`Connecting to FLIR ${document.getElementById('model').value} at ${DeviceConfig.flir.ip}...`);
+    const result = await driver.connect();
+    log.success(`Camera online. ${result.info.model}  FW: ${result.info.firmware}  Serial: ${result.info.serial}`);
+    
+    ['imgBtn','spotBtn','boxBtn','lineBtn','alarmBtn','tempBtn','disconnectBtn'].forEach(id => 
+      document.getElementById(id).disabled = false);
+    startLiveUpdate();
+  } catch (err) {
+    log.error(`Connection failed: ${err.message}`);
+    document.getElementById('connectBtn').disabled = false;
+  }
+}
+
+async function disconnectCamera() {
+  if (driver) await driver.disconnect();
+  clearInterval(liveTimer);
+  ['imgBtn','spotBtn','boxBtn','lineBtn','alarmBtn','tempBtn','disconnectBtn'].forEach(id => 
+    document.getElementById(id).disabled = true);
+  document.getElementById('connectBtn').disabled = false;
+  log.warn('Disconnected from camera.');
+}
+
+function startLiveUpdate() {
+  renderThermal();
+  liveTimer = setInterval(() => renderThermal(), 800);
+}
+
+function renderThermal() {
+  const canvas = document.getElementById('thermalCanvas');
+  const w = canvas.offsetWidth || 640, h = canvas.offsetHeight || 260;
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  const img = ctx.createImageData(w, h);
+  let maxT = 0, minT = 999, sum = 0;
+  for (let i = 0; i < w * h; i++) {
+    const nx = (i % w) / w, ny = Math.floor(i / w) / h;
+    const t = 0.4 + 0.5 * Math.sin(nx * 4 + Date.now()/1000) * Math.cos(ny * 3) + Math.random() * 0.1;
+    const clamp = Math.max(0, Math.min(1, t));
+    maxT = Math.max(maxT, clamp); minT = Math.min(minT, clamp); sum += clamp;
+    const [r, g, b] = thermalColor(clamp);
+    img.data[i*4]=r; img.data[i*4+1]=g; img.data[i*4+2]=b; img.data[i*4+3]=255;
+  }
+  ctx.putImageData(img, 0, 0);
+  const baseT = 36.5, range = 8;
+  const hotVal = (baseT + maxT * range).toFixed(1);
+  const coldVal = (baseT + minT * range).toFixed(1);
+  const avgVal = (baseT + (sum/(w*h)) * range).toFixed(1);
+  document.getElementById('hotspot').textContent = hotVal + ' °C';
+  document.getElementById('coldspot').textContent = coldVal + ' °C';
+  document.getElementById('avgtemp').textContent = avgVal + ' °C';
+  document.getElementById('m-boxmax').textContent = hotVal + ' °C';
+  document.getElementById('m-boxmin').textContent = coldVal + ' °C';
+  document.getElementById('m-boxavg').textContent = avgVal + ' °C';
+}
+
+function thermalColor(v) {
+  // iron/hot colormap: black→blue→red→yellow→white
+  const stops = [[0,0,0],[0,0,128],[128,0,200],[255,0,0],[255,165,0],[255,255,0],[255,255,255]];
+  const idx = v * (stops.length - 1);
+  const lo = Math.floor(idx), hi = Math.min(lo+1, stops.length-1);
+  const t = idx - lo;
+  return stops[lo].map((c,i) => Math.round(c + (stops[hi][i]-c)*t));
+}
+
+function buildReqBlock(method, url, params) {
+  let qs = params ? '?' + Object.entries(params).map(([k,v])=>`${k}=${v}`).join('&') : '';
+  return `<span style="color:#79c0ff">${method}</span> <span style="color:#a8ff78">${url}${qs}</span>\n<span style="color:#7d8590">Host: ${document.getElementById('cameraIp').value}\nAccept: application/json\nConnection: keep-alive</span>`;
+}
+
+async function getImage() {
+  const fmt = document.getElementById('imgFormat').value;
+  const unit = document.getElementById('tempUnit').value;
+  const url = `http://${DeviceConfig.flir.ip}/api/image/current`;
+  document.getElementById('reqBlock').innerHTML = buildReqBlock('GET', url, {imgformat:fmt});
+  document.querySelector('[data-target="tab-request"]').click();
+  log.info(`GET /api/image/current?imgformat=${fmt}`);
+  try {
+    const result = await driver.getImage(fmt);
+    renderThermal();
+    log.success(`Image received: ${result.format}  ${result.width||'?'}×${result.height||'?'}  ${fmtBytes(result.size_bytes)}`);
+    document.querySelector('[data-target="tab-live"]').click();
+  } catch(e) { log.error(e.message); }
+}
+
+async function getSpot() {
+  const n = document.getElementById('spotInstance').value;
+  const unit = document.getElementById('tempUnit').value;
+  const url = `http://${DeviceConfig.flir.ip}/api/spot/${n}.json`;
+  document.getElementById('reqBlock').innerHTML = buildReqBlock('GET', url, {tempUnit:unit, pretty:true});
+  document.querySelector('[data-target="tab-request"]').click();
+  log.info(`GET /api/spot/${n}.json?tempUnit=${unit}`);
+  try {
+    const resp = await driver.getSpot(n, unit);
+    document.getElementById('respBlock').innerHTML = renderFlirSpot(resp);
+    document.querySelector('[data-target="tab-response"]').click();
+    document.getElementById('m-spot').textContent = resp.temperature + ' °' + resp.unit;
+    log.success(`Spot${n}: ${resp.temperature} °${resp.unit}`);
+  } catch(e) { log.error(e.message); }
+}
+
+async function getBox() {
+  const n = document.getElementById('spotInstance').value;
+  const unit = document.getElementById('tempUnit').value;
+  const url = `http://${DeviceConfig.flir.ip}/api/box/${n}.json`;
+  document.getElementById('reqBlock').innerHTML = buildReqBlock('GET', url, {tempUnit:unit});
+  document.querySelector('[data-target="tab-request"]').click();
+  log.info(`GET /api/box/${n}.json?tempUnit=${unit}`);
+  try {
+    const resp = await driver.getBox(n, unit);
+    document.getElementById('respBlock').innerHTML = renderFlirBox(resp);
+    document.querySelector('[data-target="tab-response"]').click();
+    log.success(`Box${n}: max=${resp.max} min=${resp.min} avg=${resp.avg} °${resp.unit}`);
+  } catch(e) { log.error(e.message); }
+}
+
+async function getLine() {
+  const n = document.getElementById('spotInstance').value;
+  const unit = document.getElementById('tempUnit').value;
+  const url = `http://${DeviceConfig.flir.ip}/api/line/${n}.json`;
+  document.getElementById('reqBlock').innerHTML = buildReqBlock('GET', url, {tempUnit:unit});
+  document.querySelector('[data-target="tab-request"]').click();
+  log.info(`GET /api/line/${n}.json?tempUnit=${unit}`);
+  try {
+    const resp = await driver.getLine(n, unit);
+    document.getElementById('respBlock').innerHTML = renderFlirBox({...resp, area:null});
+    document.querySelector('[data-target="tab-response"]').click();
+    log.success(`Line${n}: ${resp.points.length} points, max=${resp.max} °${resp.unit}`);
+  } catch(e) { log.error(e.message); }
+}
+
+async function getAlarms() {
+  const url = `http://${DeviceConfig.flir.ip}/api/alarms`;
+  document.getElementById('reqBlock').innerHTML = buildReqBlock('GET', url, {pretty:true});
+  document.querySelector('[data-target="tab-request"]').click();
+  log.info('GET /api/alarms');
+  try {
+    const resp = await driver.getAlarms();
+    document.getElementById('respBlock').innerHTML = renderFlirAlarms(resp);
+    document.querySelector('[data-target="tab-response"]').click();
+    const active = resp.alarms.find(a=>a.triggered);
+    document.getElementById('m-alarm').textContent = active ? '🔴 ACTIVE' : '🟢 inactive';
+    log.success(`Alarms: ${resp.alarms.length} total, triggered=${!!active}`);
+  } catch(e) { log.error(e.message); }
+}
+
+async function getTempSensor() {
+  const n = document.getElementById('spotInstance').value;
+  const unit = document.getElementById('tempUnit').value;
+  const url = `http://${DeviceConfig.flir.ip}/api/tempsensor/${n}.json`;
+  document.getElementById('reqBlock').innerHTML = buildReqBlock('GET', url, {tempUnit:unit});
+  document.querySelector('[data-target="tab-request"]').click();
+  log.info(`GET /api/tempsensor/${n}.json`);
+  try {
+    const resp = await driver.getTempSensor(n, unit);
+    document.getElementById('respBlock').innerHTML = renderFlirSpot({...resp, name:resp.name, x:'—', y:'—'});
+    document.querySelector('[data-target="tab-response"]').click();
+    log.success(`Sensor${n}: ${resp.temperature} °${resp.unit}`);
+  } catch(e) { log.error(e.message); }
+}
+
+// Init
+initTabs();
+injectModeIndicator('flir');
+</script>
+</body>
+</html>

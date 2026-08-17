@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script src="../js/access-gate.js"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<title>Bionet VEMO ECG · Sandbox</title>
+<link rel="stylesheet" href="../css/shared.css">
+<link rel="stylesheet" href="../css/redesign.css?v=1">
+</head>
+<body>
+<header class="page-header">
+  <a href="../index.html" class="back-link">← All Devices</a>
+  <h1>💓 Bionet VEMO — Veterinary ECG Monitor</h1>
+  <span class="device-badge" style="background:#2a0a1a;color:#f78166;">ECG / BT-Link</span>
+</header>
+
+<div class="sandbox-layout">
+  <aside class="sidebar">
+    <div class="card">
+      <div class="card-header">📡 BT-Link Connection</div>
+      <div class="card-body controls">
+        <div class="form-group">
+          <label>Connection Type</label>
+          <select id="connType">
+            <option value="network">Network (TCP/IP)</option>
+            <option value="usb">USB Serial</option>
+            <option value="bluetooth">Bluetooth</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Host / COM Port</label>
+          <input type="text" id="hostAddr" value="192.168.1.50">
+        </div>
+        <div class="form-group">
+          <label>Port</label>
+          <input type="number" id="hostPort" value="3000">
+        </div>
+        <div class="form-group">
+          <label>Animal Species</label>
+          <select id="species">
+            <option value="canine">Canine (Dog)</option>
+            <option value="feline">Feline (Cat)</option>
+            <option value="equine">Equine (Horse)</option>
+            <option value="bovine">Bovine (Cattle)</option>
+          </select>
+        </div>
+        <button class="btn btn-primary btn-full" id="connectBtn" onclick="connectVEMO()">▶ Connect VEMO</button>
+        <button class="btn btn-secondary btn-full" id="disconnectBtn" onclick="disconnectVEMO()" disabled>■ Disconnect</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">⚙️ ECG Settings</div>
+      <div class="card-body controls">
+        <div class="form-group">
+          <label>Leads</label>
+          <select id="leads">
+            <option value="6">6-Lead (I, II, III, aVR, aVL, aVF)</option>
+            <option value="3">3-Lead (I, II, III)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Sample Rate (Hz)</label>
+          <select id="sampleRate">
+            <option value="500">500 Hz</option>
+            <option value="1000">1000 Hz</option>
+            <option value="250">250 Hz</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Gain (mm/mV)</label>
+          <select id="gain">
+            <option value="10">10 mm/mV (standard)</option>
+            <option value="5">5 mm/mV (half)</option>
+            <option value="20">20 mm/mV (double)</option>
+          </select>
+        </div>
+        <div class="row">
+          <button class="btn btn-blue btn-full" id="startBtn" onclick="startECG()" disabled>▶ Start ECG</button>
+          <button class="btn btn-secondary btn-full" id="stopBtn" onclick="stopECG()" disabled>■ Stop</button>
+        </div>
+        <button class="btn btn-secondary btn-full" id="captureBtn" onclick="captureRecord()" disabled>📋 Capture 10s Record</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">💓 Vital Signs</div>
+      <div class="card-body">
+        <table style="width:100%;font-size:12px;border-collapse:collapse;line-height:2.2;">
+          <tr><td class="text-muted">Heart Rate</td><td class="text-mono" id="m-hr" style="color:#f78166;font-weight:700;font-size:16px;">—</td></tr>
+          <tr><td class="text-muted">PR Interval</td><td class="text-mono" id="m-pr">—</td></tr>
+          <tr><td class="text-muted">QRS Duration</td><td class="text-mono" id="m-qrs">—</td></tr>
+          <tr><td class="text-muted">QT Interval</td><td class="text-mono" id="m-qt">—</td></tr>
+          <tr><td class="text-muted">ST Deviation</td><td class="text-mono" id="m-st">—</td></tr>
+          <tr><td class="text-muted">Rhythm</td><td class="text-mono" id="m-rhythm">—</td></tr>
+        </table>
+      </div>
+    </div>
+  </aside>
+
+  <div class="main-panel">
+    <div class="pane-tabs">
+      <div class="pane-tab active" data-target="tab-ecg">ECG Trace</div>
+      <div class="pane-tab" data-target="tab-request">BT-Link Protocol</div>
+      <div class="pane-tab" data-target="tab-response">ECG Record (HL7)</div>
+      <div class="pane-tab" data-target="tab-analysis">Analysis</div>
+    </div>
+    <div class="pane-content" style="flex:1;overflow:auto;">
+
+      <!-- ECG Trace -->
+      <div id="tab-ecg" style="padding:20px;">
+        <div class="card" style="margin-bottom:12px;">
+          <div class="card-header">📈 Lead II — Real-time ECG Waveform</div>
+          <div class="card-body" style="padding:8px;">
+            <canvas id="ecgCanvas" style="width:100%;height:150px;background:#001a00;border-radius:4px;display:block;"></canvas>
+          </div>
+        </div>
+        <div class="card" style="margin-bottom:12px;">
+          <div class="card-header">📈 Lead I</div>
+          <div class="card-body" style="padding:8px;">
+            <canvas id="ecgCanvas2" style="width:100%;height:100px;background:#001a00;border-radius:4px;display:block;"></canvas>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header">📈 Lead III</div>
+          <div class="card-body" style="padding:8px;">
+            <canvas id="ecgCanvas3" style="width:100%;height:100px;background:#001a00;border-radius:4px;display:block;"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- BT-Link Protocol -->
+      <div id="tab-request" style="display:none;">
+        <pre class="code-block">
+<span style="color:#7d8590"># ─── Bionet VEMO · BT-Link Next Protocol · Python Example ──────────────────</span>
+<span style="color:#7d8590"># Protocol : TCP/IP or USB Serial (BT-Link Next software bridge)</span>
+<span style="color:#7d8590"># Docs     : https://bionetus.com/vet/veterinary-multi-parameter-monitors/bt-link-next/</span>
+<span style="color:#7d8590"># Data fmt : ISO 11073 / HL7 aECG (XML)</span>
+
+<span style="color:#ff7b72">import</span> socket, struct, time
+
+VEMO_HOST = <span style="color:#a8ff78">"192.168.1.50"</span>
+VEMO_PORT = <span style="color:#a5d6ff">3000</span>
+
+<span style="color:#7d8590"># ── 1. Open TCP connection ─────────────────────────────────────────────</span>
+sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+sock.connect((VEMO_HOST, VEMO_PORT))
+sock.settimeout(5.0)
+<span style="color:#79c0ff">print</span>(<span style="color:#a8ff78">"Connected to VEMO BT-Link bridge"</span>)
+
+<span style="color:#7d8590"># ── 2. Send handshake / device query ──────────────────────────────────</span>
+QUERY_CMD = b<span style="color:#a8ff78">'\x02QUERY_DEVICE\x03'</span>     <span style="color:#7d8590"># STX + cmd + ETX</span>
+sock.sendall(QUERY_CMD)
+resp = sock.recv(1024)
+<span style="color:#79c0ff">print</span>(<span style="color:#a8ff78">f"Device info: {resp.decode('ascii', errors='ignore')}"</span>)
+
+<span style="color:#7d8590"># ── 3. Request ECG stream ─────────────────────────────────────────────</span>
+START_CMD = b<span style="color:#a8ff78">'\x02START_ECG,LEADS=6,SR=500,GAIN=10\x03'</span>
+sock.sendall(START_CMD)
+
+<span style="color:#7d8590"># ── 4. Receive ECG data packets ───────────────────────────────────────</span>
+<span style="color:#7d8590"># Each packet: [STX][LEN:2B][TIMESTAMP:4B][LEAD_ID:1B][SAMPLES:N×2B][CRC:2B][ETX]</span>
+<span style="color:#ff7b72">def</span> <span style="color:#79c0ff">parse_ecg_packet</span>(data):
+    stx = data[0]
+    length = struct.unpack(<span style="color:#a8ff78">'>H'</span>, data[1:3])[0]
+    timestamp_ms = struct.unpack(<span style="color:#a8ff78">'>I'</span>, data[3:7])[0]
+    lead_id = data[7]
+    n_samples = (length - 4) // 2
+    samples = struct.unpack(<span style="color:#a8ff78">f'>{n_samples}h'</span>, data[8:8+n_samples*2])
+    <span style="color:#ff7b72">return</span> {
+        <span style="color:#a8ff78">"timestamp_ms"</span>: timestamp_ms,
+        <span style="color:#a8ff78">"lead"</span>: [<span style="color:#a8ff78">"I"</span>,<span style="color:#a8ff78">"II"</span>,<span style="color:#a8ff78">"III"</span>,<span style="color:#a8ff78">"aVR"</span>,<span style="color:#a8ff78">"aVL"</span>,<span style="color:#a8ff78">"aVF"</span>][lead_id],
+        <span style="color:#a8ff78">"samples_mv"</span>: [s / <span style="color:#a5d6ff">1000</span> <span style="color:#ff7b72">for</span> s <span style="color:#ff7b72">in</span> samples],
+        <span style="color:#a8ff78">"sample_rate_hz"</span>: <span style="color:#a5d6ff">500</span>
+    }
+
+<span style="color:#ff7b72">for</span> _ <span style="color:#ff7b72">in</span> <span style="color:#79c0ff">range</span>(<span style="color:#a5d6ff">100</span>):
+    raw = sock.recv(4096)
+    pkt = parse_ecg_packet(raw)
+    <span style="color:#79c0ff">print</span>(<span style="color:#a8ff78">f"Lead {pkt['lead']} @ {pkt['timestamp_ms']}ms: {len(pkt['samples_mv'])} samples"</span>)
+
+<span style="color:#7d8590"># ── 5. Stop & export HL7 aECG record ─────────────────────────────────</span>
+sock.sendall(b<span style="color:#a8ff78">'\x02STOP_ECG\x03'</span>)
+sock.sendall(b<span style="color:#a8ff78">'\x02EXPORT_HL7,DURATION=10\x03'</span>)
+hl7_data = b<span style="color:#a8ff78">''</span>
+<span style="color:#ff7b72">while True</span>:
+    chunk = sock.recv(8192)
+    <span style="color:#ff7b72">if not</span> chunk: <span style="color:#ff7b72">break</span>
+    hl7_data += chunk
+<span style="color:#ff7b72">with</span> <span style="color:#79c0ff">open</span>(<span style="color:#a8ff78">"vemo_ecg.xml"</span>, <span style="color:#a8ff78">"wb"</span>) <span style="color:#ff7b72">as</span> f: f.write(hl7_data)
+sock.close()
+</pre>
+      </div>
+
+      <!-- HL7 Record -->
+      <div id="tab-response" style="display:none;">
+        <div id="hl7Block" style="color:var(--text-muted);padding:40px;text-align:center;font-size:13px;">Click "Capture 10s Record" to see results.</div>
+      </div>
+
+      <!-- Analysis -->
+      <div id="tab-analysis" style="display:none;">
+        <div id="analysisBlock" style="color:var(--text-muted);padding:40px;text-align:center;font-size:13px;">ECG analysis will appear here.</div>
+      </div>
+    </div>
+
+    <div class="console-log" id="console"></div>
+  </div>
+</div>
+
+<script src="../js/utils.js"></script>
+<script src="../js/driver-base.js"></script>
+<script src="../js/mode-indicator.js"></script>
+<script src="../js/result-renderer.js"></script>
+<script src="../js/drivers/vemo-tekscan-vetscan.js"></script>
+<script>
+const log = new SandboxLogger('console');
+let streaming = false, animFrame = 0, streamTimer = null, hrValue = 75;
+const canvases = ['ecgCanvas','ecgCanvas2','ecgCanvas3'];
+const phases = [0, Math.PI/6, Math.PI/3];
+
+document.querySelectorAll('.pane-tab').forEach(t => {
+  t.addEventListener('click', () => {
+    document.querySelectorAll('.pane-tab').forEach(x => x.classList.remove('active'));
+    document.querySelectorAll('.pane-content > div').forEach(x => x.style.display = 'none');
+    t.classList.add('active');
+    document.getElementById(t.dataset.target).style.display = 'block';
+  });
+});
+document.querySelector('.pane-tab.active').click();
+
+async function connectVEMO() {
+  document.getElementById('connectBtn').disabled = true;
+  const host = document.getElementById('hostAddr').value;
+  const port = document.getElementById('hostPort').value;
+  const connType = document.getElementById('connType').value;
+  log.info(`Opening ${connType.toUpperCase()} connection to ${host}:${port}...`);
+  await delay(500);
+  log.info('Sending QUERY_DEVICE handshake...');
+  await delay(400);
+  log.success('VEMO Connected. Model: BIONET VEMO  FW: 3.1.0  Leads: 6');
+  log.info(`Species: ${document.getElementById('species').value}`);
+  ['startBtn','captureBtn','disconnectBtn'].forEach(id => document.getElementById(id).disabled = false);
+}
+
+function disconnectVEMO() {
+  stopECG();
+  log.warn('VEMO disconnected.');
+  ['startBtn','stopBtn','captureBtn','disconnectBtn'].forEach(id => document.getElementById(id).disabled = true);
+  document.getElementById('connectBtn').disabled = false;
+}
+
+async function startECG() {
+  const sr = document.getElementById('sampleRate').value;
+  const leads = document.getElementById('leads').value;
+  log.info(`START_ECG,LEADS=${leads},SR=${sr},GAIN=${document.getElementById('gain').value}`);
+  await delay(200);
+  streaming = true; animFrame = 0;
+  document.getElementById('startBtn').disabled = true;
+  document.getElementById('stopBtn').disabled = false;
+  hrValue = document.getElementById('species').value === 'equine' ? rand(28,44,0) :
+            document.getElementById('species').value === 'feline' ? rand(120,180,0) :
+            document.getElementById('species').value === 'bovine' ? rand(40,80,0) :
+            rand(60,100,0);
+  log.success(`ECG streaming at ${sr} Hz, ${leads} leads.`);
+  streamLoop();
+}
+
+function stopECG() {
+  streaming = false;
+  if (streamTimer) clearTimeout(streamTimer);
+  document.getElementById('startBtn').disabled = false;
+  document.getElementById('stopBtn').disabled = true;
+  log.warn('ECG stream stopped.');
+}
+
+function streamLoop() {
+  if (!streaming) return;
+  animFrame++;
+  canvases.forEach((id, idx) => renderECGTrace(id, idx, animFrame));
+  if (animFrame % 10 === 0) updateVitals();
+  streamTimer = setTimeout(streamLoop, 40);
+}
+
+function ecgWaveform(t, hr, phase) {
+  const period = 60 / hr;
+  const tp = (t + phase) % period;
+  const tn = tp / period;
+  // P wave
+  if (tn < 0.1) return 0.15 * Math.sin(tn / 0.1 * Math.PI);
+  // QRS complex
+  if (tn < 0.12) return -0.05;
+  if (tn < 0.14) return -0.1;
+  if (tn < 0.15) return 1.0;
+  if (tn < 0.17) return -0.25;
+  if (tn < 0.20) return 0;
+  // T wave
+  if (tn < 0.35) return 0.25 * Math.sin((tn - 0.20) / 0.15 * Math.PI);
+  return 0;
+}
+
+function renderECGTrace(canvasId, idx, frame) {
+  const c = document.getElementById(canvasId);
+  const w = c.offsetWidth || 800, h = c.offsetHeight || 150;
+  c.width = w; c.height = h;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#001a00'; ctx.fillRect(0,0,w,h);
+  // Grid
+  ctx.strokeStyle = 'rgba(0,80,0,0.4)'; ctx.lineWidth = 0.5;
+  for (let x=0; x<w; x+=20) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,h); ctx.stroke(); }
+  for (let y=0; y<h; y+=20) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke(); }
+  // ECG trace
+  ctx.strokeStyle = '#00ff44'; ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  const speed = 200; // px/sec at 40ms interval
+  const tWindow = w / speed;
+  const tStart = (frame * 0.04) - tWindow;
+  for (let px = 0; px < w; px++) {
+    const t = tStart + (px / w) * tWindow;
+    const v = ecgWaveform(t, hrValue, phases[idx] || 0);
+    const py = h/2 - v * (h*0.35);
+    if (px === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+  }
+  ctx.stroke();
+  // Label
+  const labels = ['Lead II','Lead I','Lead III'];
+  ctx.fillStyle = 'rgba(0,255,68,0.8)'; ctx.font = '11px monospace';
+  ctx.fillText(labels[idx], 8, 14);
+  ctx.fillText(`${hrValue} bpm`, w-60, 14);
+}
+
+function updateVitals() {
+  const hr = Math.round(hrValue + rand(-2,2,0));
+  document.getElementById('m-hr').textContent = hr + ' bpm';
+  document.getElementById('m-pr').textContent = rand(80,200,0) + ' ms';
+  document.getElementById('m-qrs').textContent = rand(40,80,0) + ' ms';
+  document.getElementById('m-qt').textContent = rand(200,400,0) + ' ms';
+  document.getElementById('m-st').textContent = rand(-0.1,0.1,2) + ' mV';
+  document.getElementById('m-rhythm').textContent = 'Normal Sinus';
+}
+
+async function captureRecord() {
+  log.info('Capturing 10-second ECG record...');
+  await delay(800);
+  const sr = parseInt(document.getElementById('sampleRate').value);
+  const species = document.getElementById('species').value;
+  // Simulate HL7 aECG XML
+  const hl7 = `<?xml version="1.0" encoding="UTF-8"?>
+<AnnotatedECG xmlns="urn:hl7-org:v3" classCode="OBS" moodCode="EVN">
+  <id root="2.16.840.1.113883.4.349" extension="VEMO-${Date.now()}"/>
+  <code code="93000" codeSystem="2.16.840.1.113883.6.12" displayName="ECG 12-lead"/>
+  <effectiveTime value="${new Date().toISOString().replace(/[-:T.Z]/g,'').slice(0,14)}"/>
+  <componentOf>
+    <timepointEvent>
+      <code code="BASELINE" codeSystem="2.16.840.1.113883.5.4"/>
+    </timepointEvent>
+  </componentOf>
+  <component>
+    <series classCode="OBSCOR" moodCode="EVN">
+      <code code="RHYTHM" codeSystem="2.16.840.1.113883.5.1002"/>
+      <effectiveTime>
+        <width value="10" unit="s"/>
+      </effectiveTime>
+      <component typeCode="COMP">
+        <sequenceSet>
+          <!-- Lead II: ${sr * 10} samples @ ${sr} Hz -->
+          <component>
+            <sequence>
+              <code code="MDC_ECG_LEAD_II"/>
+              <value xsi:type="SLIST_PQ" originValue="0" scalingFactorValue="0.001" unit="mV">
+                <digits><!-- ${sr * 10} int16 samples omitted --></digits>
+              </value>
+            </sequence>
+          </component>
+        </sequenceSet>
+      </component>
+    </series>
+  </component>
+  <!-- Measurements -->
+  <component>
+    <annotation>
+      <code code="MDC_ECG_HEART_RATE" displayName="Heart Rate"/>
+      <value xsi:type="PQ" value="${Math.round(hrValue)}" unit="{beats}/min"/>
+    </annotation>
+  </component>
+  <component>
+    <annotation>
+      <code code="MDC_ECG_TIME_PD_QRS" displayName="QRS Duration"/>
+      <value xsi:type="PQ" value="${rand(40,80,0)}" unit="ms"/>
+    </annotation>
+  </component>
+  <component>
+    <annotation>
+      <code code="MDC_ECG_TIME_PD_QT" displayName="QT Interval"/>
+      <value xsi:type="PQ" value="${rand(200,400,0)}" unit="ms"/>
+    </annotation>
+  </component>
+</AnnotatedECG>`;
+  document.getElementById('hl7Block').innerHTML = renderVemoRecord({
+    record_id: `VEMO-${Date.now()}`,
+    species: document.getElementById('species').value,
+    timestamp_iso: nowISO(),
+    duration_s: 10,
+    sample_rate_hz: sr,
+    leads_captured: ["I","II","III","aVR","aVL","aVF"],
+    measurements: analysis.measurements,
+    interpretation: analysis.interpretation
+  });
+  document.querySelector('[data-target="tab-response"]').click();
+
+  const analysis = {
+    record_id: `VEMO-${Date.now()}`,
+    device: "Bionet VEMO",
+    species: species,
+    timestamp_iso: nowISO(),
+    duration_s: 10,
+    sample_rate_hz: sr,
+    leads_captured: ["I","II","III","aVR","aVL","aVF"],
+    measurements: {
+      heart_rate_bpm: Math.round(hrValue),
+      pr_interval_ms: rand(80,200,0),
+      qrs_duration_ms: rand(40,80,0),
+      qt_interval_ms: rand(200,400,0),
+      qtc_interval_ms: rand(220,440,0),
+      st_deviation_mv: rand(-0.1,0.1,3),
+      p_axis_deg: rand(0,90,1),
+      qrs_axis_deg: rand(-30,90,1)
+    },
+    interpretation: {
+      rhythm: "Normal Sinus Rhythm",
+      abnormalities: [],
+      confidence: 0.96
+    },
+    data_format: "HL7 aECG (XML)",
+    file_size_bytes: hl7.length
+  };
+  document.getElementById('analysisBlock').innerHTML = renderVemoRecord(analysis);
+  log.success(`10s record captured: HR=${analysis.measurements.heart_rate_bpm} bpm, ${analysis.measurements.leads_captured.length} leads, ${fmtBytes(analysis.file_size_bytes)}`);
+}
+</script>
+</body>
+</html>

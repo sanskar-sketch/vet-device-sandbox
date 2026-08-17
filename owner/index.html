@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<script src="../js/access-gate.js"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<title>Vitarus · Owner Portal</title>
+<link rel="stylesheet" href="../css/shared.css?v=2">
+<link rel="stylesheet" href="../css/redesign.css?v=3">
+<link rel="stylesheet" href="../css/report.css?v=4">
+<style>
+  .wizard-body { max-width: clamp(900px, 95vw, 1600px); margin: 0 auto; padding: 28px 24px 60px; }
+  .app-header {
+    position: sticky; top: 0; z-index: 50;
+    background: rgba(22,27,34,.9); backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--border); padding: 14px 28px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .app-brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; }
+  .app-brand .logo { height: 30px; width: auto; }
+  .app-brand .sub { font-size: 11px; color: var(--text-muted); font-weight: 500; }
+
+  /* ── Pet list ── */
+  .panel-title { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
+  .panel-sub { color: var(--text-muted); font-size: 13px; margin-bottom: 20px; }
+  .pet-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 16px; margin-bottom: 14px; transition: border-color .15s;
+  }
+  .pet-card:hover { border-color: var(--blue-light); }
+  .pet-card-head {
+    display: flex; align-items: center; gap: 12px; cursor: pointer;
+  }
+  .pet-thumb {
+    width: 52px; height: 52px; border-radius: var(--radius-sm);
+    background: var(--bg); border: 1px solid var(--border);
+    object-fit: contain; flex-shrink: 0; padding: 4px;
+  }
+  .pet-thumb-fallback {
+    width: 52px; height: 52px; border-radius: var(--radius-sm);
+    background: var(--bg); border: 1px solid var(--border);
+    flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 22px;
+  }
+  .pc-name { font-weight: 700; font-size: 15px; }
+  .pc-meta { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+  .pc-exam-count { font-size: 11.5px; color: var(--blue-light); margin-top: 4px; }
+  .pc-right { margin-left: auto; color: var(--text-dim); font-size: 14px; }
+
+  /* ── Pet detail ── */
+  .detail-pet-banner {
+    display: flex; align-items: center; gap: 14px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 14px 16px; margin-bottom: 16px;
+  }
+  .detail-pet-banner .dpb-thumb { width: 44px; height: 44px; border-radius: var(--radius-sm); object-fit: contain; background: var(--bg); border: 1px solid var(--border); padding: 3px; }
+  .detail-pet-banner .dpb-fallback { width: 44px; height: 44px; border-radius: var(--radius-sm); background: var(--bg); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; font-size: 20px; }
+  .detail-pet-banner .dpb-name { font-size: 17px; font-weight: 700; }
+  .detail-pet-banner .dpb-meta { font-size: 12px; color: var(--text-muted); }
+
+  .detail-section-title { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; color: var(--text-dim); margin-bottom: 10px; }
+
+  .pet-profile-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 10px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 14px 16px; margin-bottom: 16px;
+  }
+  .pet-profile-grid .ppg-label { display: block; font-size: 10px; text-transform: uppercase; letter-spacing: .4px; color: var(--text-dim); margin-bottom: 3px; }
+  .pet-profile-grid .ppg-value { display: block; font-size: 13px; font-weight: 600; color: var(--text); }
+
+  /* ── Add pet form ── */
+  .add-pet-card { margin-top: 20px; }
+  .add-pet-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+
+  .back-btn { margin-bottom: 16px; }
+
+  .preview-banner {
+    background: rgba(88,166,255,.1); border-bottom: 1px solid rgba(88,166,255,.35);
+    padding: 8px 24px; font-size: 12.5px; color: var(--text-muted); text-align: center;
+  }
+  .preview-banner a { color: var(--blue-light); font-weight: 600; }
+</style>
+<link rel="stylesheet" href="../css/redesign.css?v=3">
+<link rel="stylesheet" href="../css/experience.css?v=1">
+</head>
+<body>
+
+<div class="app-header">
+  <div class="app-brand">
+    <img class="logo" src="../assets/brand/logo-icon-64.png" alt="Vitarus">
+    <div>
+      <div>Vitarus</div>
+      <div class="sub">Owner Portal</div>
+    </div>
+  </div>
+  <div id="auth-strip-mount"></div>
+</div>
+
+<div id="preview-banner" style="display:none;"></div>
+
+<div class="wizard-body">
+
+  <section class="owner-welcome" aria-label="Owner portal introduction">
+    <div class="owner-welcome-copy">
+      <div class="owner-welcome-kicker">Your pet’s care, clearly connected</div>
+      <h2>Reports you can trust, explained by a veterinarian.</h2>
+      <p>Vitarus keeps every result in one calm, readable place. Your reports appear here only after a vet has reviewed and digitally signed them.</p>
+    </div>
+    <div class="portal-graphic" aria-hidden="true"><img src="../assets/brand/logo-icon-128.png" alt=""></div>
+  </section>
+
+  <!-- ── VIEW 1: Pet list ─────────────────────────────────────────────── -->
+  <div id="view-list">
+    <div class="panel-title">Your Pets</div>
+    <div class="panel-sub">Signed reports only — nothing appears here until a vet has reviewed and released it.</div>
+    <div id="pets-list"><span class="text-muted">Loading…</span></div>
+
+    <div class="card add-pet-card">
+      <div class="card-header">Add a pet</div>
+      <div class="card-body">
+        <div class="add-pet-grid">
+          <div class="form-group"><label>Name</label><input type="text" id="new-pet-name" placeholder="e.g. Biscuit"></div>
+          <div class="form-group"><label>Species</label>
+            <select id="new-pet-species"><option>Canine</option><option>Feline</option></select>
+          </div>
+        </div>
+        <div class="text-muted" id="add-pet-status" style="min-height:16px;margin-top:8px;"></div>
+        <button class="btn btn-primary" id="btn-add-pet" style="margin-top:6px;">Add pet</button>
+      </div>
+    </div>
+
+    <div class="card add-pet-card">
+      <div class="card-header">My Profile</div>
+      <div class="card-body">
+        <p class="text-muted" style="font-size:12px;margin-bottom:8px;">Updates are saved immediately and visible to the clinic.</p>
+        <div class="add-pet-grid">
+          <div class="form-group"><label>Full name</label><input type="text" id="owner-prof-name" placeholder="e.g. Alex Johnson"></div>
+          <div class="form-group"><label>Email</label><input type="email" id="owner-prof-email" disabled style="opacity:.5;cursor:not-allowed;" title="Email cannot be changed here"></div>
+          <div class="form-group"><label>Phone</label><input type="tel" id="owner-prof-phone" placeholder="+1 555 000 0000"></div>
+          <div class="form-group"><label>Address</label><input type="text" id="owner-prof-address" placeholder="e.g. 123 Main St, City, State"></div>
+        </div>
+        <div style="margin-top:10px;display:flex;align-items:center;gap:12px;">
+          <button class="btn btn-primary" id="btn-save-owner-profile">Save changes</button>
+          <span id="owner-profile-status" style="font-size:12.5px;min-height:16px;"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── VIEW 2: Pet detail (exam history for one pet) ──────────────── -->
+  <div id="view-detail" style="display:none;">
+    <button class="btn btn-secondary back-btn" id="btn-detail-back">← Back to your pets</button>
+
+    <div id="detail-pet-banner"></div>
+
+    <!-- Sticky compare bar — appears when 2 exams are checked -->
+    <div class="compare-bar" id="compare-bar" style="display:none;">
+      <span class="cb-hint" id="compare-bar-hint">Select <b>2</b> reports to compare</span>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-secondary" id="btn-compare-clear">Clear</button>
+        <button class="btn btn-primary" id="btn-compare-go">Compare →</button>
+      </div>
+    </div>
+
+    <div class="detail-section-title" id="detail-section-label">Reports</div>
+    <div id="detail-exam-list"></div>
+  </div>
+
+  <!-- ── VIEW 3: Single report ───────────────────────────────────────── -->
+  <div id="view-report" style="display:none;">
+    <button class="btn btn-secondary back-btn" id="btn-report-back">← Back to reports</button>
+    <div id="owner-report-content"></div>
+  </div>
+
+  <!-- ── VIEW 4: Compare two reports ────────────────────────────────── -->
+  <div id="view-compare" style="display:none;">
+    <button class="btn btn-secondary back-btn" id="btn-compare-back">← Back to reports</button>
+    <div id="compare-content"></div>
+  </div>
+
+</div><!-- /wizard-body -->
+
+<script src="../js/auth-guard.js?v=2"></script>
+<script src="../js/utils.js?v=3"></script>
+<script src="../js/report-view.js?v=2"></script>
+<script>
+/* ════════════════════════════════════════════════════════════════════════
+   Owner Portal — state & navigation
+   ════════════════════════════════════════════════════════════════════════ */
+
+// ── State ──────────────────────────────────────────────────────────────
+let myPets  = [];
+let myExams = [];
+let currentPet  = null;   // pet object in detail/compare views
+let checkedExamIds = [];  // up to 2 IDs checked for comparison
+
+// ── View switcher ──────────────────────────────────────────────────────
+const VIEWS = ['view-list', 'view-detail', 'view-report', 'view-compare'];
+function showView(id) {
+  VIEWS.forEach(v => document.getElementById(v).style.display = v === id ? 'block' : 'none');
+  window.scrollTo({ top: 0 });
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────
+// SYSTEM_LABELS, riskClass(), scoreColor() come from report-view.js, loaded above.
+function petThumbHTML(pet, size = 52) {
+  return pet.breed_key
+    ? `<img class="pet-thumb" style="width:${size}px;height:${size}px;" src="/assets/breeds/${pet.breed_key}.webp" alt="${pet.name}">`
+    : `<div class="pet-thumb-fallback" style="width:${size}px;height:${size}px;">🐾</div>`;
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// VIEW 1 — Pet list
+// ════════════════════════════════════════════════════════════════════════
+async function loadPets() {
+  const el = document.getElementById('pets-list');
+  el.innerHTML = `<span class="text-muted">Loading…</span>`;
+  try {
+    const [petsRes, examsRes] = await Promise.all([
+      fetch('/api/pets/mine',  { credentials: 'same-origin' }),
+      fetch('/api/exams/mine', { credentials: 'same-origin' })
+    ]);
+    myPets  = await petsRes.json();
+    myExams = await examsRes.json();
+
+    if (!myPets.length) {
+      el.innerHTML = `<span class="text-muted">No pets yet — add one below, or ask the clinic to link your email at intake.</span>`;
+      return;
+    }
+
+    el.innerHTML = myPets.map(pet => {
+      const examCount = myExams.filter(e => e.pet_id === pet.id).length;
+      const countLabel = examCount === 0
+        ? `<span style="color:var(--text-dim);">No signed reports yet</span>`
+        : examCount === 1
+          ? `<span class="pc-exam-count">1 signed report →</span>`
+          : `<span class="pc-exam-count">${examCount} signed reports →</span>`;
+      return `
+        <div class="pet-card" data-pet-id="${pet.id}">
+          <div class="pet-card-head">
+            ${petThumbHTML(pet)}
+            <div style="flex:1;">
+              <div class="pc-name">${pet.name}</div>
+              <div class="pc-meta">${pet.species}${pet.breed ? ' · ' + pet.breed : ''}</div>
+              <div style="margin-top:4px;">${countLabel}</div>
+            </div>
+            ${examCount > 0 ? '<div class="pc-right">›</div>' : ''}
+          </div>
+        </div>`;
+    }).join('');
+
+    el.querySelectorAll('.pet-card[data-pet-id]').forEach(card => {
+      card.addEventListener('click', () => {
+        const pet = myPets.find(p => String(p.id) === card.getAttribute('data-pet-id'));
+        const exams = myExams.filter(e => e.pet_id === pet.id);
+        if (exams.length > 0) openPetDetail(pet);
+      });
+    });
+
+  } catch {
+    el.innerHTML = `<span class="text-muted">Could not load — is the backend running?</span>`;
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// VIEW 2 — Pet detail (exam history)
+// ════════════════════════════════════════════════════════════════════════
+function openPetDetail(pet) {
+  currentPet     = pet;
+  checkedExamIds = [];
+
+  const petExams = myExams.filter(e => e.pet_id === pet.id);
+
+  // Banner
+  document.getElementById('detail-pet-banner').innerHTML = `
+    <div class="detail-pet-banner">
+      ${petThumbHTML(pet, 44)}
+      <div>
+        <div class="dpb-name">${pet.name}</div>
+        <div class="dpb-meta">${pet.species}${pet.breed ? ' · ' + pet.breed : ''}
+          ${pet.age_years != null ? ' · ' + pet.age_years + ' yrs' : ''}
+          ${pet.weight_kg  != null ? ' · ' + pet.weight_kg  + ' kg' : ''}
+        </div>
+      </div>
+    </div>
+    <div class="pet-profile-grid">
+      <div><span class="ppg-label">Sex</span><span class="ppg-value">${pet.sex || '—'}</span></div>
+      <div><span class="ppg-label">Age</span><span class="ppg-value">${pet.age_years != null ? pet.age_years + ' yrs' : '—'}</span></div>
+      <div><span class="ppg-label">Weight</span><span class="ppg-value">${pet.weight_kg != null ? pet.weight_kg + ' kg' : '—'}</span></div>
+      <div><span class="ppg-label">Microchip</span><span class="ppg-value">${pet.microchip || '—'}</span></div>
+      <div><span class="ppg-label">Added</span><span class="ppg-value">${new Date(pet.created_at).toLocaleDateString()}</span></div>
+    </div>`;
+
+  const sectionLabel = document.getElementById('detail-section-label');
+  sectionLabel.textContent = petExams.length === 1 ? '1 Report' : `${petExams.length} Reports`;
+
+  renderDetailExamList(petExams);
+  updateCompareBar();
+  showView('view-detail');
+}
+
+function renderDetailExamList(petExams) {
+  const el = document.getElementById('detail-exam-list');
+  if (!petExams.length) {
+    el.innerHTML = `<span class="text-muted">No signed reports yet.</span>`;
+    return;
+  }
+
+  const canCompare = petExams.length >= 2;
+
+  el.innerHTML = petExams.map(e => {
+    const score = e.report.overall_health_score;
+    const color = scoreColor(score);
+    const checked = checkedExamIds.includes(e.id);
+    return `
+      <div class="detail-exam-row" data-exam-id="${e.id}">
+        <div class="der-left">
+          ${canCompare ? `<input type="checkbox" class="der-checkbox" data-check-id="${e.id}" ${checked ? 'checked' : ''} title="Select to compare">` : ''}
+          <div class="der-score" style="color:${color}">${score}</div>
+          <div class="der-meta">
+            <span style="font-size:13px;font-weight:600;">Overall score /100</span>
+            <span class="der-date">Signed ${new Date(e.signed_at).toLocaleDateString()}</span>
+            ${e.signed_by_name ? `<span class="der-vet">Reviewed by ${e.signed_by_name}</span>` : ''}
+          </div>
+        </div>
+        <button class="btn btn-secondary btn-view-report" data-exam-id="${e.id}" style="font-size:12px;padding:5px 12px;">View report</button>
+      </div>`;
+  }).join('');
+
+  // View report buttons
+  el.querySelectorAll('.btn-view-report').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      openExam(btn.getAttribute('data-exam-id'));
+    });
+  });
+
+  // Compare checkboxes
+  if (canCompare) {
+    el.querySelectorAll('.der-checkbox').forEach(cb => {
+      cb.addEventListener('change', () => {
+        const id = Number(cb.getAttribute('data-check-id'));
+        if (cb.checked) {
+          if (checkedExamIds.length >= 2) {
+            cb.checked = false;
+            return;
+          }
+          checkedExamIds.push(id);
+        } else {
+          checkedExamIds = checkedExamIds.filter(x => x !== id);
+        }
+        updateCompareBar();
+      });
+    });
+  }
+}
+
+function updateCompareBar() {
+  const bar  = document.getElementById('compare-bar');
+  const hint = document.getElementById('compare-bar-hint');
+  const n = checkedExamIds.length;
+  if (n === 0) {
+    bar.style.display = 'none';
+    return;
+  }
+  bar.style.display = 'flex';
+  if (n === 1) {
+    hint.innerHTML = `<b>1</b> selected — select one more to compare`;
+    document.getElementById('btn-compare-go').disabled = true;
+  } else {
+    hint.innerHTML = `<b>2</b> reports selected`;
+    document.getElementById('btn-compare-go').disabled = false;
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// VIEW 3 — Single report
+// ════════════════════════════════════════════════════════════════════════
+function openExam(id) {
+  const exam = myExams.find(e => String(e.id) === String(id));
+  if (!exam) return;
+  const container = document.getElementById('owner-report-content');
+  renderReport(container, exam.report, {
+    editable: false,
+    signedBanner: {
+      vetName:  exam.signed_by_name || 'the reviewing vet',
+      signedAt: exam.signed_at,
+      notes:    exam.vet_notes
+    },
+    aiNarrativeHtml: exam.ai_narrative
+      ? exam.ai_narrative.split('\n').filter(p => p.trim()).map(p => `<p>${p}</p>`).join('')
+      : null,
+    showRawJson: false
+  });
+  showView('view-report');
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// VIEW 4 — Compare two reports
+// ════════════════════════════════════════════════════════════════════════
+function openCompare(idA, idB) {
+  // Sort oldest → newest so "older" is always on the left
+  const examA = myExams.find(e => e.id === idA);
+  const examB = myExams.find(e => e.id === idB);
+  if (!examA || !examB) return;
+  const [older, newer] = new Date(examA.signed_at) <= new Date(examB.signed_at)
+    ? [examA, examB] : [examB, examA];
+
+  const scoreDelta = newer.report.overall_health_score - older.report.overall_health_score;
+  const deltaClass = scoreDelta > 0 ? 'pos' : scoreDelta < 0 ? 'neg' : 'neu';
+  const deltaLabel = scoreDelta > 0 ? `▲ +${scoreDelta}` : scoreDelta < 0 ? `▼ ${scoreDelta}` : '— no change';
+
+  // ── Column headers (overall score)
+  const headers = `
+    <div class="compare-header-grid">
+      <div class="compare-col-header">
+        <div class="cch-label">Earlier exam</div>
+        <div class="cch-score" style="color:${scoreColor(older.report.overall_health_score)}">${older.report.overall_health_score}<span style="font-size:16px;color:var(--text-dim);font-weight:400;"> /100</span></div>
+        <div class="cch-date">${new Date(older.signed_at).toLocaleDateString()}</div>
+        ${older.signed_by_name ? `<div class="cch-vet">Reviewed by ${older.signed_by_name}</div>` : ''}
+      </div>
+      <div class="compare-col-header">
+        <div class="cch-label">Latest exam</div>
+        <div class="cch-score" style="color:${scoreColor(newer.report.overall_health_score)}">${newer.report.overall_health_score}<span style="font-size:16px;color:var(--text-dim);font-weight:400;"> /100</span></div>
+        <div class="cch-date">${new Date(newer.signed_at).toLocaleDateString()}</div>
+        ${newer.signed_by_name ? `<div class="cch-vet">Reviewed by ${newer.signed_by_name}</div>` : ''}
+        <div class="compare-score-delta ${deltaClass}">${deltaLabel}</div>
+      </div>
+    </div>`;
+
+  // ── Per-system rows
+  const olderRows = Object.entries(SYSTEM_LABELS).map(([key, label]) => {
+    const s = older.report.systems[key];
+    if (!s) return '';
+    return `
+      <div class="compare-row ${riskClass(s.level)}">
+        <div class="cr-top">
+          <span class="cr-name">${label}</span>
+          <span class="risk-badge ${riskClass(s.level)}">${s.level}</span>
+        </div>
+        <div class="cr-finding">${older.report.key_findings[key] || ''}</div>
+        <div class="cr-confidence">Confidence ${s.confidence}%</div>
+      </div>`;
+  }).join('');
+
+  const newerRows = Object.entries(SYSTEM_LABELS).map(([key, label]) => {
+    const sNew = newer.report.systems[key];
+    const sOld = older.report.systems[key];
+    if (!sNew) return '';
+
+    let delta = '';
+    if (sOld) {
+      const levels = ['Low Risk', 'Moderate Risk', 'High Risk'];
+      const diff = levels.indexOf(sNew.level) - levels.indexOf(sOld.level);
+      if (diff < 0) delta = `<span class="delta-badge delta-better">▲ improved</span>`;
+      else if (diff > 0) delta = `<span class="delta-badge delta-worse">▼ worsened</span>`;
+    }
+
+    return `
+      <div class="compare-row ${riskClass(sNew.level)}">
+        <div class="cr-top">
+          <span class="cr-name">${label}${delta}</span>
+          <span class="risk-badge ${riskClass(sNew.level)}">${sNew.level}</span>
+        </div>
+        <div class="cr-finding">${newer.report.key_findings[key] || ''}</div>
+        <div class="cr-confidence">Confidence ${sNew.confidence}%</div>
+      </div>`;
+  }).join('');
+
+  document.getElementById('compare-content').innerHTML = `
+    <div style="margin-bottom:12px;">
+      <div class="panel-title" style="font-size:18px;">${currentPet ? currentPet.name + ' · ' : ''}Report Comparison</div>
+      <div class="panel-sub">Older exam on the left, newer on the right. Improved / worsened badges reflect risk-level changes.</div>
+    </div>
+    ${headers}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px;">
+      <div class="detail-section-title">Earlier exam systems</div>
+      <div class="detail-section-title">Latest exam systems</div>
+    </div>
+    <div class="compare-systems-grid">
+      <div class="compare-system-col">${olderRows}</div>
+      <div class="compare-system-col">${newerRows}</div>
+    </div>`;
+
+  showView('view-compare');
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// Navigation wiring
+// ════════════════════════════════════════════════════════════════════════
+document.getElementById('btn-detail-back').addEventListener('click', () => {
+  currentPet = null;
+  checkedExamIds = [];
+  showView('view-list');
+});
+
+document.getElementById('btn-report-back').addEventListener('click', () => {
+  showView('view-detail');
+});
+
+document.getElementById('btn-compare-back').addEventListener('click', () => {
+  showView('view-detail');
+});
+
+document.getElementById('btn-compare-clear').addEventListener('click', () => {
+  checkedExamIds = [];
+  const petExams = myExams.filter(e => e.pet_id === currentPet.id);
+  renderDetailExamList(petExams);
+  updateCompareBar();
+});
+
+document.getElementById('btn-compare-go').addEventListener('click', () => {
+  if (checkedExamIds.length !== 2) return;
+  openCompare(checkedExamIds[0], checkedExamIds[1]);
+});
+
+// ════════════════════════════════════════════════════════════════════════
+// Add pet form
+// ════════════════════════════════════════════════════════════════════════
+document.getElementById('btn-add-pet').addEventListener('click', async () => {
+  const name      = document.getElementById('new-pet-name').value.trim();
+  const species   = document.getElementById('new-pet-species').value;
+  const statusEl  = document.getElementById('add-pet-status');
+  if (!name) { statusEl.style.color = 'var(--red)'; statusEl.textContent = 'Enter a name.'; return; }
+  try {
+    const res = await fetch('/api/pets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ name, species })
+    });
+    if (!res.ok) throw new Error((await res.json()).error || 'could not add pet');
+    document.getElementById('new-pet-name').value = '';
+    statusEl.style.color = '#3fb950';
+    statusEl.textContent = `${name} added.`;
+    loadPets();
+  } catch (e) {
+    statusEl.style.color = 'var(--red)';
+    statusEl.textContent = e.message;
+  }
+});
+
+// ════════════════════════════════════════════════════════════════════════
+// Owner profile form
+// ════════════════════════════════════════════════════════════════════════
+function populateOwnerProfile(user) {
+  document.getElementById('owner-prof-name').value    = user.name    || '';
+  document.getElementById('owner-prof-email').value   = user.email   || '';
+  document.getElementById('owner-prof-phone').value   = user.phone   || '';
+  document.getElementById('owner-prof-address').value = user.address || '';
+  document.getElementById('owner-profile-status').textContent = '';
+}
+
+document.getElementById('btn-save-owner-profile').addEventListener('click', async () => {
+  const btn      = document.getElementById('btn-save-owner-profile');
+  const statusEl = document.getElementById('owner-profile-status');
+  const payload  = {
+    name:    document.getElementById('owner-prof-name').value.trim(),
+    phone:   document.getElementById('owner-prof-phone').value.trim(),
+    address: document.getElementById('owner-prof-address').value.trim(),
+  };
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    const res = await fetch('/api/auth/profile', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error((await res.json()).error || 'save failed');
+    statusEl.style.color = '#3fb950';
+    statusEl.textContent = '✓ Profile saved.';
+  } catch (e) {
+    statusEl.style.color = 'var(--red)';
+    statusEl.textContent = e.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Save changes';
+  }
+});
+
+// ════════════════════════════════════════════════════════════════════════
+// Boot
+// ════════════════════════════════════════════════════════════════════════
+AuthGuard.requireRole('owner', 'staff', 'vet', 'admin', 'super_admin').then(user => {
+  if (!user) return;
+  AuthGuard.renderStrip(user, '#auth-strip-mount');
+
+  if (user.role !== 'owner') {
+    const roleHome = { staff: '/staff/index.html', vet: '/vet/index.html', admin: '/admin/index.html', super_admin: '/admin/index.html' }[user.role] || '/';
+    const banner = document.getElementById('preview-banner');
+    banner.className = 'preview-banner';
+    banner.style.display = 'block';
+    banner.innerHTML = `Previewing the Owner Portal as ${user.name} (${user.role}) — owners only see their own signed reports. <a href="${roleHome}">← Back to my dashboard</a>`;
+  }
+
+  populateOwnerProfile(user);
+  loadPets();
+});
+</script>
+</body>
+</html>

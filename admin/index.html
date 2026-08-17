@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<script src="../js/access-gate.js"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<title>Vitarus · Admin Console</title>
+<link rel="stylesheet" href="../css/shared.css?v=2">
+<link rel="stylesheet" href="../css/redesign.css?v=3">
+<style>
+  .wizard-body { max-width: clamp(1200px, 96vw, 2000px); margin: 0 auto; padding: 28px 24px 60px; }
+  .app-header {
+    position: sticky; top: 0; z-index: 50;
+    background: rgba(22,27,34,.9); backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--border); padding: 14px 28px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .app-brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; }
+  .app-brand .logo { height: 30px; width: auto; }
+  .app-brand .sub { font-size: 11px; color: var(--text-muted); font-weight: 500; }
+
+  /* Tab bar */
+  .tab-bar { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 24px; }
+  .tab-btn {
+    background: none; border: none; border-bottom: 2px solid transparent;
+    color: var(--text-muted); font-size: 13px; font-weight: 600;
+    padding: 10px 16px; cursor: pointer; transition: color .15s, border-color .15s;
+    margin-bottom: -1px;
+  }
+  .tab-btn:hover { color: var(--text); }
+  .tab-btn.active { color: var(--blue-light); border-bottom-color: var(--blue-light); }
+
+  .panel-title { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
+  .panel-sub { color: var(--text-muted); font-size: 13px; margin-bottom: 20px; }
+  .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; margin-bottom: 24px; }
+  .stat-tile { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
+  .stat-tile .st-value { font-size: 28px; font-weight: 700; font-family: var(--font-mono); }
+  .stat-tile .st-label { font-size: 11.5px; color: var(--text-muted); margin-top: 4px; text-transform: uppercase; letter-spacing: .3px; }
+  .role-strip { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 24px; }
+  
+  .data-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .data-table th {
+    text-align: left; padding: 10px 12px; font-size: 10px; text-transform: uppercase;
+    letter-spacing: .3px; color: var(--text-dim); border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .data-table td { padding: 10px 12px; border-bottom: 1px solid rgba(48,54,61,.5); }
+  .data-table tbody tr:hover { background: rgba(88,166,255,.03); }
+
+  .section-block { margin-top: 28px; }
+  .create-account-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+  @media (max-width: 700px) { .create-account-grid { grid-template-columns: 1fr; } }
+
+  .super-admin-warning {
+    background: rgba(255,123,114,.08); border: 1px solid rgba(255,123,114,.35);
+    border-radius: var(--radius); padding: 12px 14px; margin-bottom: 12px; font-size: 12px;
+    color: var(--text-muted);
+  }
+  .super-admin-warning b { color: #ff7b72; }
+
+  /* ── Labs ── */
+  .lab-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 16px; margin-bottom: 12px; cursor: pointer; transition: border-color .15s;
+  }
+  .lab-card:hover { border-color: var(--blue-light); }
+  .lab-card .lc-name { font-weight: 700; font-size: 15px; }
+  .lab-card .lc-address { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+  .lab-card .lc-stats { display: flex; gap: 16px; margin-top: 10px; font-size: 11.5px; color: var(--text-dim); }
+  .lab-card .lc-stats b { color: var(--text); }
+
+  .lab-info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+  @media (max-width: 700px) { .lab-info-grid { grid-template-columns: 1fr; } }
+
+  .state-pill { font-size: 10.5px; font-weight: 700; padding: 2px 9px; border-radius: 10px; letter-spacing: .2px; text-transform: capitalize; }
+  .state-operational { background: rgba(63,185,80,.15); color: #3fb950; }
+  .state-maintenance { background: rgba(255,166,87,.15); color: var(--orange, #ffa657); }
+  .state-offline { background: rgba(255,123,114,.15); color: #ff7b72; }
+
+  .machine-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+    background: var(--surface); margin-bottom: 8px;
+  }
+  .machine-row .mr-icon { margin-right: 8px; font-size: 15px; }
+  .machine-row .mr-name { font-weight: 600; font-size: 13px; }
+  .machine-row .mr-type { font-size: 11.5px; color: var(--text-dim); margin-left: 6px; }
+  .machine-row select { font-size: 11.5px; padding: 4px 6px; }
+
+  /* ── Lab status bar (operational / maintenance / offline breakdown) ── */
+  .lab-status-bar {
+    display: flex; gap: 2px; height: 7px; border-radius: 4px; overflow: hidden;
+    background: var(--surface-2); margin: 8px 0 6px;
+  }
+  .lsb-seg { min-width: 3px; }
+  .lsb-seg.lsb-operational, .lsb-dot.lsb-operational { background: #3fb950; }
+  .lsb-seg.lsb-maintenance, .lsb-dot.lsb-maintenance { background: var(--orange, #ffa657); }
+  .lsb-seg.lsb-offline, .lsb-dot.lsb-offline { background: #ff7b72; }
+  .lab-status-legend { display: flex; gap: 12px; flex-wrap: wrap; }
+  .lsb-legend-item { font-size: 10.5px; color: var(--text-dim); display: flex; align-items: center; gap: 5px; }
+  .lsb-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+
+  /* ── Overview: Lab Status cards ── */
+  .overview-lab-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-bottom: 8px; }
+  .overview-lab-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 14px 16px;
+  }
+  .overview-lab-card .olc-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+  .overview-lab-card .olc-name { font-weight: 700; font-size: 13.5px; }
+  .overview-lab-card .olc-machine-icons { font-size: 14px; letter-spacing: 2px; }
+
+  /* ── Patient / owner detail modal ── */
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 200;
+    display: flex; align-items: flex-start; justify-content: center; padding: 40px 20px; overflow-y: auto;
+  }
+  .modal-box {
+    background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 24px; max-width: 700px; width: 100%;
+  }
+  .owner-info-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 14px 16px; margin: 10px 0 18px;
+  }
+  .owner-info-card .oic-row { font-size: 13px; margin-bottom: 4px; }
+  .owner-info-card .oic-row b { color: var(--text-dim); font-weight: 600; margin-right: 6px; }
+  .exam-history-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+    background: var(--surface); margin-bottom: 8px; font-size: 12.5px;
+  }
+  .view-pet-link { color: var(--blue-light); cursor: pointer; text-decoration: underline; }
+</style>
+<link rel="stylesheet" href="../css/redesign.css?v=3">
+<link rel="stylesheet" href="../css/experience.css?v=1">
+</head>
+<body>
+
+<div class="app-header">
+  <div class="app-brand">
+    <img class="logo" src="../assets/brand/logo-icon-64.png" alt="Vitarus">
+    <div><div>Vitarus</div><div class="sub">Admin Console</div></div>
+  </div>
+  <div id="auth-strip-mount"></div>
+</div>
+
+<div class="wizard-body">
+
+  <section class="clinical-strip" aria-label="Operations status">
+    <div class="clinical-strip-copy">
+      <div class="clinical-strip-kicker">Vitarus Operations</div>
+      <h2>Keep the clinical network healthy, visible and ready.</h2>
+      <p>Monitor labs, machines, access and exam flow from one operational view.</p>
+    </div>
+    <div class="clinical-metric"><span class="pulse"></span> SYSTEM PULSE · NOMINAL</div>
+  </section>
+
+  <!-- ── TAB BAR ─────────────────────────────────────────────────────────── -->
+  <div class="tab-bar" id="admin-tab-bar">
+    <button class="tab-btn active" data-tab="overview">Overview</button>
+    <button class="tab-btn" data-tab="labs" id="tab-btn-labs">Labs</button>
+    <button class="tab-btn" data-tab="users">All Users</button>
+    <button class="tab-btn" data-tab="exams">All Exams</button>
+    <button class="tab-btn" data-tab="accounts">Clinic Accounts</button>
+    <button class="tab-btn" data-tab="super" id="tab-btn-super" style="display:none;">Super Admin</button>
+  </div>
+
+  <!-- ══ TAB: Overview ══════════════════════════════════════════════════════ -->
+  <div id="tab-overview">
+    <div class="panel-title">Overview</div>
+    <div class="panel-sub">Live counts from the shared database — no fabricated business metrics, only what's actually recorded.</div>
+
+    <div class="stat-grid" id="stat-grid"><span class="text-muted">Loading…</span></div>
+
+    <div class="card-header" style="background:none;border:none;padding:0 0 10px;">Accounts by role</div>
+    <div class="role-strip" id="role-strip"></div>
+
+    <div class="card-header" style="background:none;border:none;padding:0 0 10px;margin-top:20px;">Lab Status</div>
+    <div class="overview-lab-grid" id="overview-lab-status"><span class="text-muted">Loading…</span></div>
+
+    <div class="card-header" style="background:none;border:none;padding:0 0 10px;margin-top:20px;">Recent Activity</div>
+    <div class="card">
+      <div class="card-body" style="padding:0;">
+        <table class="data-table">
+          <thead><tr><th>Patient</th><th>Species</th><th>Status</th><th>Submitted</th><th>Signed</th></tr></thead>
+          <tbody id="activity-body"><tr><td colspan="5" class="text-muted" style="padding:14px;">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div><!-- /tab-overview -->
+
+  <!-- ══ TAB: Labs ══════════════════════════════════════════════════════════ -->
+  <div id="tab-labs" style="display:none;">
+    <div id="labs-list-view">
+      <div class="panel-title">Labs</div>
+      <div class="panel-sub">All registered laboratories on the platform.</div>
+      <div class="card section-block" style="margin-top:0;">
+        <div class="card-header">Add a new lab</div>
+        <div class="card-body">
+          <div class="create-account-grid">
+            <div class="form-group"><label>Lab name</label><input type="text" id="new-lab-name" placeholder="e.g. Riverside Animal Diagnostics"></div>
+            <div class="form-group"><label>Address</label><input type="text" id="new-lab-address" placeholder="e.g. 42 Elm St, Riverside"></div>
+          </div>
+          <div class="text-muted" id="create-lab-status" style="min-height:16px;margin-top:8px;"></div>
+          <button class="btn btn-primary" id="btn-create-lab" style="margin-top:6px;">Create lab</button>
+        </div>
+      </div>
+      <div class="card-header" style="background:none;border:none;padding:0 0 10px;margin-top:20px;">All labs</div>
+      <div id="labs-cards"><span class="text-muted">Loading…</span></div>
+    </div>
+
+    <div id="lab-detail-view" style="display:none;">
+      <div id="lab-detail-content"></div>
+    </div>
+  </div><!-- /tab-labs -->
+
+  <!-- ══ TAB: All Users (super_admin sees owners too) ═══════════════════════ -->
+  <div id="tab-users" style="display:none;">
+    <div class="panel-title">All Users</div>
+    <div class="panel-sub" id="users-sub">All registered accounts. Super-admin sees owners; admin sees vet/staff/admin only.</div>
+    <div class="card">
+      <div class="card-body" style="padding:0;">
+        <table class="data-table">
+          <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Phone</th><th>Specialty</th><th>Clinic</th><th>Address</th><th>Pet Count</th><th>Created</th></tr></thead>
+          <tbody id="users-body"><tr><td colspan="9" class="text-muted" style="padding:14px;">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div><!-- /tab-users -->
+
+  <!-- ══ TAB: All Exams ════════════════════════════════════════════════════ -->
+  <div id="tab-exams" style="display:none;">
+    <div class="panel-title">All Exams</div>
+    <div class="panel-sub">Full exam history with pet and vet detail (most recent 200).</div>
+    <div class="card">
+      <div class="card-body" style="padding:0;">
+        <table class="data-table">
+          <thead><tr><th>ID</th><th>Patient</th><th>Species</th><th>Owner Email</th><th>Status</th><th>Score</th><th>Submitted</th><th>Signed By</th><th>Signed At</th></tr></thead>
+          <tbody id="exams-body"><tr><td colspan="9" class="text-muted" style="padding:14px;">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div><!-- /tab-exams -->
+
+  <!-- ══ TAB: Clinic Accounts (create vet/staff) ═══════════════════════════ -->
+  <div id="tab-accounts" style="display:none;">
+    <div class="panel-title">Clinic Accounts</div>
+    <div class="panel-sub">Vet and staff accounts — owners self-register; clinic accounts are issued here.</div>
+
+    <div class="card">
+      <div class="card-body" style="padding:0;">
+        <table class="data-table">
+          <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Created</th></tr></thead>
+          <tbody id="clinic-accounts-body"><tr><td colspan="4" class="text-muted" style="padding:14px;">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card section-block">
+      <div class="card-header">Create a vet or staff account</div>
+      <div class="card-body">
+        <p class="text-muted" style="font-size:12px;margin-bottom:4px;">Vets and clinic staff can't self-register — issue their login here.</p>
+        <div class="create-account-grid">
+          <div class="form-group"><label>Name</label><input type="text" id="new-user-name" placeholder="e.g. Dr. Jordan Lee"></div>
+          <div class="form-group"><label>Email</label><input type="email" id="new-user-email" placeholder="e.g. jordan@vitarus.demo"></div>
+          <div class="form-group"><label>Password (min. 8 characters)</label><input type="password" id="new-user-password"></div>
+          <div class="form-group"><label>Role</label>
+            <select id="new-user-role">
+              <option value="vet">Vet</option>
+              <option value="staff">Staff</option>
+              <option value="admin" id="opt-admin" style="display:none;">Admin</option>
+            </select>
+          </div>
+          <div class="form-group" id="new-user-lab-group" style="display:none;">
+            <label>Lab</label>
+            <select id="new-user-lab"></select>
+          </div>
+        </div>
+        <div class="text-muted" id="create-user-status" style="min-height:16px;margin-top:8px;"></div>
+        <button class="btn btn-primary" id="btn-create-user" style="margin-top:6px;">Create account</button>
+      </div>
+    </div>
+  </div><!-- /tab-accounts -->
+
+  <!-- ══ TAB: Super Admin ═══════════════════════════════════════════════════ -->
+  <div id="tab-super" style="display:none;">
+    <div class="panel-title">Super Admin</div>
+    <div class="panel-sub">Elevated controls for platform administration — change any user's role.</div>
+
+    <div class="super-admin-warning">
+      <b>⚠️ Elevated Access:</b> These operations are logged and affect live accounts. Use with caution.
+    </div>
+
+    <div class="card">
+      <div class="card-header">Change User Role</div>
+      <div class="card-body">
+        <p class="text-muted" style="font-size:12px;margin-bottom:10px;">Lookup a user by email and reassign their role. This is immediate and cannot be undone.</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <div class="form-group"><label>User email</label><input type="email" id="super-user-email" placeholder="e.g. user@example.com"></div>
+          <div class="form-group"><label>New role</label>
+            <select id="super-new-role">
+              <option value="owner">Owner</option>
+              <option value="vet">Vet</option>
+              <option value="staff">Staff</option>
+              <option value="admin">Admin</option>
+              <option value="super_admin">Super Admin</option>
+            </select>
+          </div>
+        </div>
+        <div class="text-muted" id="super-role-status" style="min-height:16px;margin-top:8px;"></div>
+        <button class="btn btn-primary" id="btn-change-role" style="margin-top:6px;">Change role</button>
+      </div>
+    </div>
+
+    <div class="card section-block">
+      <div class="card-header">Platform Statistics</div>
+      <div class="card-body">
+        <div class="stat-grid" id="super-stats-grid">
+          <div class="stat-tile"><div class="st-value" id="super-total-users">—</div><div class="st-label">Total Users</div></div>
+          <div class="stat-tile"><div class="st-value" id="super-total-pets">—</div><div class="st-label">Total Pets</div></div>
+          <div class="stat-tile"><div class="st-value" id="super-total-exams">—</div><div class="st-label">Total Exams</div></div>
+        </div>
+      </div>
+    </div>
+  </div><!-- /tab-super -->
+
+</div><!-- /wizard-body -->
+
+<div class="modal-overlay" id="patient-modal-overlay" style="display:none;">
+  <div class="modal-box">
+    <button class="btn btn-secondary" id="btn-patient-modal-close" style="float:right;">✕ Close</button>
+    <div id="patient-modal-content"></div>
+  </div>
+</div>
+
+<script src="../js/auth-guard.js?v=2"></script>
+<script src="../js/admin-portal.js?v=4"></script>
+</body>
+</html>

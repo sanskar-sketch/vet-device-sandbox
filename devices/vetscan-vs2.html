@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script src="../js/access-gate.js"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<title>Vetscan VS2 &amp; OptiCell · Sandbox</title>
+<link rel="stylesheet" href="../css/shared.css">
+<link rel="stylesheet" href="../css/redesign.css?v=1">
+<style>
+  .analyte-bar { height: 8px; border-radius: 4px; background: var(--border); margin-top: 4px; overflow: hidden; }
+  .analyte-fill { height: 100%; border-radius: 4px; transition: width 0.4s; }
+  .result-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--border); }
+  .result-row:last-child { border-bottom: none; }
+  .result-name { flex: 1; font-size: 12px; }
+  .result-value { font-family: var(--font-mono); font-size: 13px; font-weight: 600; min-width: 80px; text-align: right; }
+  .result-unit { font-size: 11px; color: var(--text-muted); min-width: 50px; }
+  .result-flag { font-size: 11px; font-weight: 700; min-width: 24px; text-align: center; }
+  .flag-H { color: #ff7b72; }
+  .flag-L { color: #58a6ff; }
+  .flag-N { color: #3fb950; }
+</style>
+<link rel="stylesheet" href="../css/redesign.css?v=1">
+</head>
+<body>
+<header class="page-header">
+  <a href="../index.html" class="back-link">← All Devices</a>
+  <h1>🩸 Vetscan VS2 &amp; OptiCell — Blood Biomarker Analyzer</h1>
+  <span class="device-badge" style="background:#2a1a0a;color:#ffa657;">Blood / Point-of-Care</span>
+</header>
+
+<div class="sandbox-layout">
+  <aside class="sidebar">
+    <div class="card">
+      <div class="card-header">🔌 Device Connection</div>
+      <div class="card-body controls">
+        <div class="form-group">
+          <label>Analyzer Model</label>
+          <select id="model">
+            <option value="vs2">Vetscan VS2 (Chemistry)</option>
+            <option value="opticell">Vetscan OptiCell (Hematology)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Interface</label>
+          <select id="interface">
+            <option value="usb">USB Serial</option>
+            <option value="rs232">RS-232</option>
+            <option value="ethernet">Ethernet / LIS</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Port / Host</label>
+          <input type="text" id="portAddr" value="COM3">
+        </div>
+        <div class="form-group">
+          <label>Baud Rate</label>
+          <select id="baud">
+            <option value="9600">9600</option>
+            <option value="19200">19200</option>
+            <option value="38400">38400</option>
+          </select>
+        </div>
+        <button class="btn btn-primary btn-full" id="connectBtn" onclick="connectAnalyzer()">▶ Connect Analyzer</button>
+        <button class="btn btn-secondary btn-full" id="disconnectBtn" onclick="disconnectAnalyzer()" disabled>■ Disconnect</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">🧪 Run Configuration</div>
+      <div class="card-body controls">
+        <div class="form-group">
+          <label>Rotor / Panel</label>
+          <select id="rotor">
+            <option value="avian">Avian/Reptilian Profile</option>
+            <option value="canine">Canine Profile</option>
+            <option value="feline">Feline Profile</option>
+            <option value="equine">Equine Profile</option>
+            <option value="comprehensive">Comprehensive Diagnostic</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Sample Type</label>
+          <select id="sampleType">
+            <option value="whole_blood">Whole Blood</option>
+            <option value="serum">Serum</option>
+            <option value="plasma">Plasma (Li-Heparin)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Sample Volume (µL)</label>
+          <input type="number" id="volume" value="2" min="1" max="5">
+        </div>
+        <div class="form-group">
+          <label>Patient ID</label>
+          <input type="text" id="patientId" value="PAT-2024-001">
+        </div>
+        <button class="btn btn-blue btn-full" id="runBtn" onclick="runAnalysis()" disabled>▶ Run Analysis</button>
+        <button class="btn btn-secondary btn-full" id="qcBtn" onclick="runQC()" disabled>🔬 Run QC (OptiCell)</button>
+        <button class="btn btn-secondary btn-full" id="statusBtn" onclick="getStatus()" disabled>📊 Get Status</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">⏱ Run Progress</div>
+      <div class="card-body">
+        <div id="progressArea">
+          <p class="text-muted" style="font-size:12px;">No active run.</p>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <div class="main-panel">
+    <div class="pane-tabs">
+      <div class="pane-tab active" data-target="tab-results">Test Results</div>
+      <div class="pane-tab" data-target="tab-request">API Code</div>
+      <div class="pane-tab" data-target="tab-response">JSON Response</div>
+      <div class="pane-tab" data-target="tab-astm">ASTM/LIS</div>
+    </div>
+    <div class="pane-content" style="flex:1;overflow:auto;">
+
+      <!-- Test Results -->
+      <div id="tab-results" style="padding:20px;">
+        <div class="card" style="margin-bottom:16px;">
+          <div class="card-header">📋 Blood Chemistry Panel — Vetscan VS2</div>
+          <div class="card-body" id="resultsBody" style="padding:14px;">
+            <p class="text-muted">Run an analysis to see results here.</p>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div class="card">
+            <div class="card-header" style="font-size:11px;">🟢 In Range</div>
+            <div class="card-body" style="text-align:center;font-size:28px;font-weight:700;color:#3fb950;" id="normalCount">—</div>
+          </div>
+          <div class="card">
+            <div class="card-header" style="font-size:11px;">🔴 Out of Range</div>
+            <div class="card-body" style="text-align:center;font-size:28px;font-weight:700;color:#ff7b72;" id="abnormalCount">—</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- API Code -->
+      <div id="tab-request" style="display:none;">
+        <pre class="code-block">
+<span style="color:#7d8590"># ─── Vetscan VS2 / OptiCell · REST-like API Example ─────────────────────────</span>
+<span style="color:#7d8590"># Note: Real devices use Serial/ASTM protocol. This models a REST wrapper.</span>
+<span style="color:#7d8590"># SDK    : Custom integration layer (hospital LIS or middleware)</span>
+<span style="color:#7d8590"># Protocol: Serial (ASTM E1394) or Ethernet bridge</span>
+
+<span style="color:#ff7b72">import</span> requests, json
+
+ANALYZER_URL = <span style="color:#a8ff78">"http://192.168.1.50:8080/api/vetscan"</span>
+
+<span style="color:#7d8590"># ── 1. Get analyzer status ────────────────────────────────────────────</span>
+r = requests.get(<span style="color:#a8ff78">f"{ANALYZER_URL}/status"</span>)
+status = r.json()
+<span style="color:#79c0ff">print</span>(<span style="color:#a8ff78">f"Model: {status['model']}  Status: {status['state']}"</span>)
+
+<span style="color:#7d8590"># ── 2. Submit sample for analysis ─────────────────────────────────────</span>
+payload = {
+    <span style="color:#a8ff78">"patient_id"</span>: <span style="color:#a8ff78">"PAT-2024-001"</span>,
+    <span style="color:#a8ff78">"species"</span>: <span style="color:#a8ff78">"canine"</span>,
+    <span style="color:#a8ff78">"rotor_type"</span>: <span style="color:#a8ff78">"comprehensive_diagnostic"</span>,
+    <span style="color:#a8ff78">"sample_type"</span>: <span style="color:#a8ff78">"whole_blood"</span>,
+    <span style="color:#a8ff78">"volume_ul"</span>: 2.0
+}
+r = requests.post(<span style="color:#a8ff78">f"{ANALYZER_URL}/run"</span>, json=payload)
+run = r.json()
+<span style="color:#79c0ff">print</span>(<span style="color:#a8ff78">f"Run ID: {run['run_id']}  ETA: {run['estimated_seconds']}s"</span>)
+
+<span style="color:#7d8590"># ── 3. Poll for completion ────────────────────────────────────────────</span>
+<span style="color:#ff7b72">import</span> time
+run_id = run[<span style="color:#a8ff78">"run_id"</span>]
+<span style="color:#ff7b72">while True</span>:
+    r = requests.get(<span style="color:#a8ff78">f"{ANALYZER_URL}/run/{run_id}"</span>)
+    run_status = r.json()
+    <span style="color:#79c0ff">print</span>(<span style="color:#a8ff78">f"Status: {run_status['status']}  Progress: {run_status['progress']}%"</span>)
+    <span style="color:#ff7b72">if</span> run_status[<span style="color:#a8ff78">"status"</span>] == <span style="color:#a8ff78">"completed"</span>: <span style="color:#ff7b72">break</span>
+    time.sleep(5)
+
+<span style="color:#7d8590"># ── 4. Retrieve results ───────────────────────────────────────────────</span>
+r = requests.get(<span style="color:#a8ff78">f"{ANALYZER_URL}/results/{run_id}"</span>)
+results = r.json()
+
+<span style="color:#79c0ff">print</span>(<span style="color:#a8ff78">f"\nResults for {results['patient_id']}:"</span>)
+<span style="color:#ff7b72">for</span> analyte <span style="color:#ff7b72">in</span> results[<span style="color:#a8ff78">"analytes"</span>]:
+    flag = analyte[<span style="color:#a8ff78">"flag"</span>]
+    <span style="color:#79c0ff">print</span>(<span style="color:#a8ff78">f"  {analyte['name']:20} {analyte['value']:>6.2f} {analyte['unit']:8} [{flag}]"</span>)
+
+<span style="color:#7d8590"># ── 5. Export to ASTM format ──────────────────────────────────────────</span>
+r = requests.get(<span style="color:#a8ff78">f"{ANALYZER_URL}/results/{run_id}/astm"</span>)
+astm_msg = r.text
+<span style="color:#ff7b72">with</span> <span style="color:#79c0ff">open</span>(<span style="color:#a8ff78">"results.astm"</span>, <span style="color:#a8ff78">"w"</span>) <span style="color:#ff7b72">as</span> f: f.write(astm_msg)
+</pre>
+      </div>
+
+      <!-- JSON Response -->
+      <div id="tab-response" style="display:none;">
+        <div id="jsonBlock" style="color:var(--text-muted);padding:40px;text-align:center;font-size:13px;">Run an analysis to see results.</div>
+      </div>
+
+      <!-- ASTM/LIS -->
+      <div id="tab-astm" style="display:none;">
+        <div id="astmBlock" style="color:var(--text-muted);padding:40px;text-align:center;font-size:13px;">ASTM message will appear after a run.</div>
+      </div>
+    </div>
+
+    <div class="console-log" id="console"></div>
+  </div>
+</div>
+
+<script src="../js/utils.js"></script>
+<script src="../js/driver-base.js"></script>
+<script src="../js/mode-indicator.js"></script>
+<script src="../js/result-renderer.js"></script>
+<script src="../js/drivers/vemo-tekscan-vetscan.js"></script>
+<script>
+const log = new SandboxLogger('console');
+let connected = false, runId = null;
+
+document.querySelectorAll('.pane-tab').forEach(t => {
+  t.addEventListener('click', () => {
+    document.querySelectorAll('.pane-tab').forEach(x => x.classList.remove('active'));
+    document.querySelectorAll('.pane-content > div').forEach(x => x.style.display = 'none');
+    t.classList.add('active');
+    document.getElementById(t.dataset.target).style.display = 'block';
+  });
+});
+document.querySelector('.pane-tab.active').click();
+
+async function connectAnalyzer() {
+  document.getElementById('connectBtn').disabled = true;
+  const model = document.getElementById('model').value;
+  const intf = document.getElementById('interface').value;
+  const port = document.getElementById('portAddr').value;
+  log.info(`Opening ${intf.toUpperCase()} connection to ${port}...`);
+  await delay(500);
+  log.info('Sending handshake...');
+  await delay(400);
+  log.success(`${model==='vs2'?'Vetscan VS2':'Vetscan OptiCell'} connected. FW: 2.8.1  Serial: VS2-20240556`);
+  connected = true;
+  ['runBtn','qcBtn','statusBtn','disconnectBtn'].forEach(id => document.getElementById(id).disabled = false);
+}
+
+function disconnectAnalyzer() {
+  connected = false;
+  log.warn('Analyzer disconnected.');
+  ['runBtn','qcBtn','statusBtn','disconnectBtn'].forEach(id => document.getElementById(id).disabled = true);
+  document.getElementById('connectBtn').disabled = false;
+}
+
+async function runAnalysis() {
+  const model = document.getElementById('model').value;
+  const rotor = document.getElementById('rotor').value;
+  const sampleType = document.getElementById('sampleType').value;
+  const patientId = document.getElementById('patientId').value;
+  runId = `RUN-${Date.now()}`;
+  
+  log.info(`Starting analysis: Patient=${patientId}  Rotor=${rotor}  Sample=${sampleType}`);
+  document.getElementById('runBtn').disabled = true;
+  
+  // Simulate run progress
+  const progress = document.getElementById('progressArea');
+  for (let p = 0; p <= 100; p += 5) {
+    progress.innerHTML = `<div style="margin-bottom:6px;font-size:12px;">Analyzing... ${p}%</div><div class="analyte-bar"><div class="analyte-fill" style="width:${p}%;background:var(--blue);"></div></div>`;
+    await delay(120);
+  }
+  
+  progress.innerHTML = `<p style="color:var(--accent);font-size:12px;font-weight:600;">✓ Analysis complete</p>`;
+  log.success(`Run ${runId} completed in ~12 seconds.`);
+  document.getElementById('runBtn').disabled = false;
+  
+  // Generate results
+  await delay(200);
+  displayResults(model, rotor);
+}
+
+function displayResults(model, rotor) {
+  const analytes = model === 'vs2' ? [
+    {name:'Glucose', value:rand(90,120,1), unit:'mg/dL', ref:[70,138], flag:'N'},
+    {name:'BUN (Urea)', value:rand(15,30,1), unit:'mg/dL', ref:[9,29], flag:'N'},
+    {name:'Creatinine', value:rand(0.8,1.5,2), unit:'mg/dL', ref:[0.5,1.6], flag:'N'},
+    {name:'Calcium', value:rand(9,11,2), unit:'mg/dL', ref:[9.0,11.4], flag:'N'},
+    {name:'Total Protein', value:rand(5.5,7.5,2), unit:'g/dL', ref:[5.4,7.5], flag:'N'},
+    {name:'Albumin', value:rand(3.0,4.2,2), unit:'g/dL', ref:[2.9,4.2], flag:'N'},
+    {name:'ALT', value:rand(30,90,0), unit:'U/L', ref:[18,86], flag:'N'},
+    {name:'ALP', value:rand(40,150,0), unit:'U/L', ref:[12,122], flag:rand(0,1)>0.7?'H':'N'},
+    {name:'Total Bilirubin', value:rand(0.1,0.4,2), unit:'mg/dL', ref:[0.1,0.5], flag:'N'},
+    {name:'Sodium', value:rand(142,152,1), unit:'mmol/L', ref:[142,152], flag:'N'},
+    {name:'Potassium', value:rand(3.8,5.4,2), unit:'mmol/L', ref:[3.8,5.4], flag:'N'},
+    {name:'Chloride', value:rand(105,115,1), unit:'mmol/L', ref:[105,115], flag:'N'}
+  ] : [
+    {name:'WBC', value:rand(6,16,2), unit:'10³/µL', ref:[6.0,17.0], flag:'N'},
+    {name:'RBC', value:rand(5.5,8.5,2), unit:'10⁶/µL', ref:[5.5,8.5], flag:'N'},
+    {name:'Hemoglobin', value:rand(12,18,1), unit:'g/dL', ref:[12.0,18.0], flag:'N'},
+    {name:'Hematocrit', value:rand(37,55,1), unit:'%', ref:[37,55], flag:'N'},
+    {name:'Platelets', value:rand(180,400,0), unit:'10³/µL', ref:[180,400], flag:'N'},
+    {name:'Neutrophils', value:rand(3,11,2), unit:'10³/µL', ref:[3.0,11.5], flag:'N'},
+    {name:'Lymphocytes', value:rand(1,5,2), unit:'10³/µL', ref:[1.0,4.8], flag:'N'},
+    {name:'Monocytes', value:rand(0.2,1.5,2), unit:'10³/µL', ref:[0.2,1.5], flag:'N'}
+  ];
+  
+  // Randomly flag some
+  analytes.forEach(a => {
+    if (Math.random()>0.85) a.flag = a.value > a.ref[1] ? 'H' : 'L';
+    if (a.flag === 'H') a.value = a.ref[1] + rand(0.1, a.ref[1]*0.3, 2);
+    if (a.flag === 'L') a.value = a.ref[0] - rand(0.1, a.ref[0]*0.2, 2);
+  });
+  
+  const normalCount = analytes.filter(a=>a.flag==='N').length;
+  const abnormalCount = analytes.length - normalCount;
+  
+  let html = '<div>';
+  analytes.forEach(a => {
+    const flagColor = a.flag==='H'?'#ff7b72':a.flag==='L'?'#58a6ff':'#3fb950';
+    html += `<div class="result-row">
+      <div class="result-name">${a.name}</div>
+      <div class="result-value" style="color:${flagColor}">${a.value.toFixed(a.unit.includes('/')?2:1)}</div>
+      <div class="result-unit">${a.unit}</div>
+      <div class="result-flag flag-${a.flag}">${a.flag}</div>
+    </div>`;
+  });
+  html += '</div>';
+  
+  document.getElementById('resultsBody').innerHTML = html;
+  document.getElementById('normalCount').textContent = normalCount;
+  document.getElementById('abnormalCount').textContent = abnormalCount;
+  
+  // JSON response
+  const response = {
+    run_id: runId,
+    timestamp_iso: nowISO(),
+    device: model === 'vs2' ? 'Vetscan VS2' : 'Vetscan OptiCell',
+    patient_id: document.getElementById('patientId').value,
+    rotor_type: document.getElementById('rotor').value,
+    sample_type: document.getElementById('sampleType').value,
+    volume_ul: parseFloat(document.getElementById('volume').value),
+    status: 'completed',
+    qc_passed: true,
+    analytes: analytes.map(a => ({
+      name: a.name, value: a.value, unit: a.unit,
+      reference_range: a.ref, flag: a.flag
+    })),
+    summary: { normal: normalCount, abnormal: abnormalCount, total: analytes.length }
+  };
+  document.getElementById('jsonBlock').innerHTML = renderVetscanResults(response);
+  
+  // ASTM message
+  document.getElementById('astmBlock').innerHTML = renderVetscanASTM(response);
+  
+  log.data(`Results: ${normalCount} normal, ${abnormalCount} flagged`);
+}
+
+async function runQC() {
+  log.info('Running OptiCell QC cartridge...');
+  await delay(800);
+  log.success('QC passed: WBC ✓  RBC ✓  HGB ✓  PLT ✓');
+}
+
+async function getStatus() {
+  log.info('Querying analyzer status...');
+  await delay(300);
+  const status = { device: document.getElementById('model').value === 'vs2' ? 'VS2' : 'OptiCell',
+    state: 'Ready', temperature_c: rand(35,37,1), rotor_count: rand(45,120,0),
+    last_qc: '2024-07-20T08:15:00Z', errors: [] };
+  log.success(`Status: ${status.state}  Temp: ${status.temperature_c}°C  Rotors used: ${status.rotor_count}`);
+}
+</script>
+</body>
+</html>

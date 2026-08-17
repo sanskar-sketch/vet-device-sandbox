@@ -1,0 +1,10 @@
+.vercel
+node_modules
+server/data/*.db
+server/data/*.db-shm
+server/data/*.db-wal
+.env
+.superdesign/tmp
+supabase/.temp
+.DS_Store
+**/.DS_Store

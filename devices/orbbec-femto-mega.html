@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script src="../js/access-gate.js"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<title>Orbbec Femto Mega · Sandbox</title>
+<link rel="stylesheet" href="../css/shared.css">
+<link rel="stylesheet" href="../css/redesign.css?v=1">
+</head>
+<body>
+
+<header class="page-header">
+  <a href="../index.html" class="back-link">← All Devices</a>
+  <h1>🎥 Orbbec Femto Mega — ToF Depth Camera</h1>
+  <span class="device-badge" style="background:#1a3a4f;color:#58a6ff;">3D / ToF</span>
+</header>
+
+<div class="sandbox-layout">
+
+  <!-- ── Sidebar ──────────────────────────────────────────────────────── -->
+  <aside class="sidebar">
+    <div class="card">
+      <div class="card-header">📡 Connection</div>
+      <div class="card-body controls">
+        <div class="form-group">
+          <label>Transport</label>
+          <select id="transport" onchange="onTransportChange()">
+            <option value="ethernet">Ethernet (Network Mode)</option>
+            <option value="usb">USB 3.0</option>
+          </select>
+        </div>
+        <div class="form-group" id="ipGroup">
+          <label>Camera IP Address</label>
+          <input type="text" id="cameraIp" value="192.168.1.100">
+        </div>
+        <div class="form-group">
+          <label>SDK Mode</label>
+          <select id="sdkMode">
+            <option value="orbbec">Orbbec SDK (Native)</option>
+            <option value="k4a">K4A Wrapper (Azure Kinect compat.)</option>
+          </select>
+        </div>
+        <button class="btn btn-primary btn-full" id="connectBtn" onclick="connectDevice()">▶ Connect</button>
+        <button class="btn btn-secondary btn-full" id="disconnectBtn" onclick="disconnectDevice()" disabled>■ Disconnect</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">⚙️ Stream Config</div>
+      <div class="card-body controls">
+        <div class="form-group">
+          <label>Depth Mode</label>
+          <select id="depthMode">
+            <option value="NFOV_UNBINNED">NFOV Unbinned (640×576)</option>
+            <option value="NFOV_2X2BINNED">NFOV 2×2 Binned (320×288)</option>
+            <option value="WFOV_UNBINNED">WFOV Unbinned (1024×1024)</option>
+            <option value="WFOV_2X2BINNED">WFOV 2×2 Binned (512×512)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Color Resolution</label>
+          <select id="colorRes">
+            <option value="1080P">1080P (1920×1080)</option>
+            <option value="720P">720P (1280×720)</option>
+            <option value="3072P">3072P (4096×3072)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Frame Rate</label>
+          <select id="fps">
+            <option value="30">30 fps</option>
+            <option value="15">15 fps</option>
+            <option value="5">5 fps</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Depth Range (mm)</label>
+          <div class="row">
+            <input type="number" id="depthMin" value="500">
+            <input type="number" id="depthMax" value="3800">
+          </div>
+        </div>
+        <div class="row">
+          <button class="btn btn-blue btn-full" id="streamBtn" onclick="startStream()" disabled>▶ Stream</button>
+          <button class="btn btn-secondary btn-full" id="stopBtn" onclick="stopStream()" disabled>■ Stop</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">📊 Live Metrics</div>
+      <div class="card-body">
+        <table style="width:100%;font-size:12px;border-collapse:collapse;line-height:2;">
+          <tr><td class="text-muted">Depth FPS</td><td class="text-mono" id="m-dfps">—</td></tr>
+          <tr><td class="text-muted">Color FPS</td><td class="text-mono" id="m-cfps">—</td></tr>
+          <tr><td class="text-muted">Frame #</td><td class="text-mono" id="m-frame">—</td></tr>
+          <tr><td class="text-muted">Min Depth</td><td class="text-mono" id="m-min">—</td></tr>
+          <tr><td class="text-muted">Max Depth</td><td class="text-mono" id="m-max">—</td></tr>
+          <tr><td class="text-muted">Bandwidth</td><td class="text-mono" id="m-bw">—</td></tr>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">🛠 Actions</div>
+      <div class="card-body controls">
+        <button class="btn btn-secondary btn-full" onclick="capturePointCloud()" id="pcBtn" disabled>☁ Capture Point Cloud</button>
+        <button class="btn btn-secondary btn-full" onclick="captureIMU()" id="imuBtn" disabled>🔄 Read IMU</button>
+        <button class="btn btn-secondary btn-full" onclick="captureFrameset()" id="fsBtn" disabled>📸 Capture Frameset</button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ── Main Panel ───────────────────────────────────────────────────── -->
+  <div class="main-panel">
+    <div class="pane-tabs">
+      <div class="pane-tab active" data-target="tab-stream">Live View</div>
+      <div class="pane-tab" data-target="tab-request">SDK Code</div>
+      <div class="pane-tab" data-target="tab-response">Frame Response</div>
+      <div class="pane-tab" data-target="tab-pointcloud">Point Cloud</div>
+      <div class="pane-tab" data-target="tab-imu">IMU Data</div>
+    </div>
+
+    <div class="pane-content" style="flex:1;overflow:auto;">
+
+      <!-- Live View -->
+      <div id="tab-stream" style="padding:20px;">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+          <div class="card">
+            <div class="card-header">🔵 Depth Frame (false-color)</div>
+            <div class="card-body" style="padding:8px;">
+              <canvas id="depthCanvas" style="width:100%;height:200px;background:#000;border-radius:4px;display:block;"></canvas>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">🟢 Color (RGB) Frame</div>
+            <div class="card-body" style="padding:8px;">
+              <canvas id="colorCanvas" style="width:100%;height:200px;background:#000;border-radius:4px;display:block;"></canvas>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header">☁️ Point Cloud Scatter (top-down)</div>
+          <div class="card-body" style="padding:8px;">
+            <canvas id="pcCanvas" style="width:100%;height:130px;background:#000;border-radius:4px;display:block;"></canvas>
+          </div>
+        </div>
+        <div style="margin-top:12px;padding:12px;background:var(--surface-2);border-radius:6px;border:1px solid var(--border);">
+          <p class="text-muted" style="font-size:12px;">ⓘ Connect device then press <b>▶ Stream</b> to begin live depth + color rendering.</p>
+        </div>
+      </div>
+
+      <!-- SDK Code -->
+      <div id="tab-request" style="display:none;">
+        <pre class="code-block">
+<span style="color:#7d8590">// ─── Orbbec Femto Mega · SDK Request Example (Python) ─────────────────────</span>
+<span style="color:#7d8590">// SDK    : pyorbbecsdk v2   pip install pyorbbecsdk</span>
+<span style="color:#7d8590">// Docs   : https://github.com/orbbec/pyorbbecsdk</span>
+
+<span style="color:#ff7b72">import</span> pyorbbecsdk <span style="color:#ff7b72">as</span> obs
+<span style="color:#ff7b72">from</span> pyorbbecsdk <span style="color:#ff7b72">import</span> Context, Pipeline, Config, OBSensorType, OBFormat
+<span style="color:#ff7b72">import</span> numpy <span style="color:#ff7b72">as</span> np
+
+<span style="color:#7d8590"># ── 1. Discover device ─────────────────────────────────────────────────</span>
+ctx    = obs.Context()
+
+<span style="color:#7d8590"># USB mode</span>
+device = ctx.query_devices().get_device_by_index(0)
+
+<span style="color:#7d8590"># Ethernet mode (Network Mode)</span>
+<span style="color:#7d8590"># device = ctx.create_net_device("192.168.1.100", 8090)</span>
+
+info = device.get_device_info()
+<span style="color:#79c0ff">print</span>(<span style="color:#a8ff78">f"Device : {info.get_name()}"</span>)
+<span style="color:#79c0ff">print</span>(<span style="color:#a8ff78">f"FW     : {info.get_firmware_version()}"</span>)
+<span style="color:#79c0ff">print</span>(<span style="color:#a8ff78">f"Serial : {info.get_serial_number()}"</span>)
+
+<span style="color:#7d8590"># ── 2. Configure pipeline ──────────────────────────────────────────────</span>
+pipeline = Pipeline(device)
+config   = Config()
+
+depth_profile = (pipeline
+    .get_stream_profile_list(OBSensorType.DEPTH_SENSOR)
+    .get_video_stream_profile(640, 576, OBFormat.Y16, 30))
+config.enable_stream(depth_profile)
+
+color_profile = (pipeline
+    .get_stream_profile_list(OBSensorType.COLOR_SENSOR)
+    .get_video_stream_profile(1920, 1080, OBFormat.RGB, 30))
+config.enable_stream(color_profile)
+
+config.set_align_mode(obs.OBAlignMode.SW_MODE)   <span style="color:#7d8590"># D2C alignment</span>
+pipeline.start(config)
+
+<span style="color:#7d8590"># ── 3. Wait for frameset ───────────────────────────────────────────────</span>
+frameset    = pipeline.wait_for_frames(timeout_ms=100)
+depth_frame = frameset.get_depth_frame()
+color_frame = frameset.get_color_frame()
+
+<span style="color:#7d8590"># ── 4. Read depth buffer ───────────────────────────────────────────────</span>
+depth_data  = np.frombuffer(depth_frame.get_data(), dtype=np.uint16)
+depth_mat   = depth_data.reshape((depth_frame.get_height(), depth_frame.get_width()))
+depth_scale = depth_frame.get_depth_scale()          <span style="color:#7d8590"># mm / unit</span>
+
+<span style="color:#79c0ff">print</span>(<span style="color:#a8ff78">f"Depth  : {depth_mat.shape}, scale={depth_scale} mm"</span>)
+
+<span style="color:#7d8590"># ── 5. Generate point cloud ────────────────────────────────────────────</span>
+pc_filter = obs.PointCloudFilter()
+pc_filter.set_create_point_format(obs.OBFormat.POINT)
+pc_filter.set_calibration_param(pipeline.get_calibration_param())
+cloud     = pc_filter.process(frameset)
+pts       = np.frombuffer(cloud.get_data(), dtype=np.float32).reshape(-1, 3)
+<span style="color:#79c0ff">print</span>(<span style="color:#a8ff78">f"Points : {len(pts):,}"</span>)
+
+<span style="color:#7d8590"># ── 6. Read IMU ────────────────────────────────────────────────────────</span>
+accel = device.get_sensor(OBSensorType.ACCEL_SENSOR).get_frame()
+gyro  = device.get_sensor(OBSensorType.GYRO_SENSOR).get_frame()
+
+<span style="color:#7d8590"># ── 7. Cleanup ─────────────────────────────────────────────────────────</span>
+pipeline.stop()
+</pre>
+      </div>
+
+      <!-- Frame Response -->
+      <div id="tab-response" style="display:none;">
+        <div id="responseJson" style="color:var(--text-muted);padding:40px;text-align:center;font-size:13px;">Click "📸 Capture Frameset" to see frame data.</div>
+      </div>
+
+      <!-- Point Cloud -->
+      <div id="tab-pointcloud" style="display:none;">
+        <div id="pcJson" style="color:var(--text-muted);padding:40px;text-align:center;font-size:13px;">Click "☁ Capture Point Cloud" to see point cloud data.</div>
+      </div>
+
+      <!-- IMU -->
+      <div id="tab-imu" style="display:none;">
+        <div id="imuJson" style="color:var(--text-muted);padding:40px;text-align:center;font-size:13px;">Click "🔄 Read IMU" to see sensor data.</div>
+      </div>
+
+    </div>
+
+    <!-- Console -->
+    <div class="console-log" id="console"></div>
+  </div>
+</div>
+
+<script src="../js/utils.js"></script>
+<script src="../js/driver-base.js"></script>
+<script src="../js/mode-indicator.js"></script>
+<script src="../js/result-renderer.js"></script>
+<script src="../js/drivers/orbbec.js"></script>
+<script>
+const log = new SandboxLogger('console');
+let streaming = false, streamTimer = null, frameCount = 0;
+const depthCtx = document.getElementById('depthCanvas').getContext('2d');
+const colorCtx = document.getElementById('colorCanvas').getContext('2d');
+const pcCtx    = document.getElementById('pcCanvas').getContext('2d');
+
+/* Tab init */
+document.querySelectorAll('.pane-tab').forEach(t => {
+  t.addEventListener('click', () => {
+    document.querySelectorAll('.pane-tab').forEach(x=>x.classList.remove('active'));
+    document.querySelectorAll('.pane-content > div').forEach(x=>x.style.display='none');
+    t.classList.add('active');
+    document.getElementById(t.dataset.target).style.display='block';
+  });
+});
+document.querySelector('.pane-tab.active').click();
+
+function onTransportChange(){
+  document.getElementById('ipGroup').style.display =
+    document.getElementById('transport').value === 'usb' ? 'none' : '';
+}
+
+async function connectDevice(){
+  document.getElementById('connectBtn').disabled = true;
+  log.info('Initialising Orbbec context...');
+  await delay(400);
+  log.info('Querying devices...');
+  await delay(600);
+  const transport = document.getElementById('transport').value;
+  const ip = document.getElementById('cameraIp').value;
+  const sdk = document.getElementById('sdkMode').value;
+  if(transport==='ethernet') log.info(`Connecting via Ethernet to ${ip}:8090`);
+  else log.info('Opening USB 3.0 device at index 0');
+  await delay(800);
+  log.success('Device opened: Femto Mega  FW=1.2.8  SN=FM2024001337');
+  log.info(`SDK mode: ${sdk === 'k4a' ? 'K4A Wrapper (Azure Kinect compat.)' : 'Orbbec SDK Native'}`);
+  document.getElementById('disconnectBtn').disabled = false;
+  document.getElementById('streamBtn').disabled = false;
+  document.getElementById('pcBtn').disabled = false;
+  document.getElementById('imuBtn').disabled = false;
+  document.getElementById('fsBtn').disabled = false;
+}
+
+function disconnectDevice(){
+  stopStream();
+  log.warn('Pipeline stopped. Device closed.');
+  document.getElementById('connectBtn').disabled = false;
+  document.getElementById('disconnectBtn').disabled = true;
+  document.getElementById('streamBtn').disabled = true;
+  document.getElementById('stopBtn').disabled = true;
+  document.getElementById('pcBtn').disabled = true;
+  document.getElementById('imuBtn').disabled = true;
+  document.getElementById('fsBtn').disabled = true;
+}
+
+async function startStream(){
+  const mode = document.getElementById('depthMode').value;
+  const fps  = document.getElementById('fps').value;
+  log.info(`Starting streams: depth=${mode} color=${document.getElementById('colorRes').value} @ ${fps}fps`);
+  await delay(300);
+  log.success('Pipeline started. Streaming…');
+  document.getElementById('streamBtn').disabled = true;
+  document.getElementById('stopBtn').disabled = false;
+  streaming = true; frameCount = 0;
+  streamLoop();
+}
+
+function stopStream(){
+  streaming = false;
+  if(streamTimer) clearTimeout(streamTimer);
+  document.getElementById('streamBtn').disabled = false;
+  document.getElementById('stopBtn').disabled = true;
+  log.warn('Stream stopped.');
+}
+
+function streamLoop(){
+  if(!streaming) return;
+  frameCount++;
+  renderDepth();
+  renderColor();
+  renderPC();
+  document.getElementById('m-dfps').textContent = rand(28,30,1) + ' fps';
+  document.getElementById('m-cfps').textContent = rand(28,30,1) + ' fps';
+  document.getElementById('m-frame').textContent = frameCount;
+  document.getElementById('m-min').textContent   = rand(480,520,0) + ' mm';
+  document.getElementById('m-max').textContent   = rand(3700,3850,0) + ' mm';
+  document.getElementById('m-bw').textContent    = fmtBytes(rand(50,70,1)*1024*1024) + '/s';
+  streamTimer = setTimeout(streamLoop, 100);
+}
+
+function renderDepth(){
+  const c = document.getElementById('depthCanvas');
+  const w = c.offsetWidth || 320, h = c.offsetHeight || 200;
+  c.width = w; c.height = h;
+  const img = depthCtx.createImageData(w, h);
+  for(let i=0;i<w*h;i++){
+    const d = Math.random()*1.0;
+    const v = Math.floor(d*255);
+    const hue = (d*240)|0;
+    const [r,g,b] = hslToRgb(hue/360, 0.9, 0.5);
+    img.data[i*4]=r; img.data[i*4+1]=g; img.data[i*4+2]=b; img.data[i*4+3]=255;
+  }
+  depthCtx.putImageData(img, 0, 0);
+  depthCtx.fillStyle='rgba(0,0,0,0.4)'; depthCtx.fillRect(0,0,w,20);
+  depthCtx.fillStyle='#aef'; depthCtx.font='11px monospace';
+  depthCtx.fillText(`Frame ${frameCount}  |  640×576  |  uint16`, 8, 14);
+}
+
+function renderColor(){
+  const c = document.getElementById('colorCanvas');
+  const w = c.offsetWidth || 320, h = c.offsetHeight || 200;
+  c.width = w; c.height = h;
+  const ctx2 = colorCtx;
+  const grad = ctx2.createLinearGradient(0,0,w,h);
+  grad.addColorStop(0,'#1a2a1a'); grad.addColorStop(0.5,'#2a3a2a'); grad.addColorStop(1,'#1a2a2a');
+  ctx2.fillStyle = grad; ctx2.fillRect(0,0,w,h);
+  for(let i=0;i<60;i++){
+    const x=Math.random()*w, y=Math.random()*h, r=Math.random()*3+1;
+    ctx2.beginPath(); ctx2.arc(x,y,r,0,Math.PI*2);
+    ctx2.fillStyle=`rgba(${(Math.random()*80+100)|0},${(Math.random()*80+120)|0},${(Math.random()*40+40)|0},0.7)`;
+    ctx2.fill();
+  }
+  ctx2.fillStyle='rgba(0,0,0,0.4)'; ctx2.fillRect(0,0,w,20);
+  ctx2.fillStyle='#afa'; ctx2.font='11px monospace';
+  ctx2.fillText('1920×1080  |  RGB888', 8, 14);
+}
+
+function renderPC(){
+  const c = document.getElementById('pcCanvas');
+  const w = c.offsetWidth || 800, h = c.offsetHeight || 130;
+  c.width = w; c.height = h;
+  pcCtx.clearRect(0,0,w,h);
+  for(let i=0;i<600;i++){
+    const x=(Math.random()*0.8+0.1)*w;
+    const y=(Math.random()*0.7+0.15)*h;
+    const alpha=Math.random()*0.7+0.3;
+    const z=Math.random();
+    pcCtx.beginPath(); pcCtx.arc(x,y,1,0,Math.PI*2);
+    pcCtx.fillStyle=`rgba(88,166,255,${alpha})`;
+    pcCtx.fill();
+  }
+}
+
+function hslToRgb(h,s,l){
+  let r,g,b;
+  if(s===0){r=g=b=l;}else{
+    const q=l<0.5?l*(1+s):l+s-l*s, p=2*l-q;
+    r=hue2rgb(p,q,h+1/3); g=hue2rgb(p,q,h); b=hue2rgb(p,q,h-1/3);
+  }
+  return [Math.round(r*255),Math.round(g*255),Math.round(b*255)];
+}
+function hue2rgb(p,q,t){
+  if(t<0)t+=1; if(t>1)t-=1;
+  if(t<1/6)return p+(q-p)*6*t;
+  if(t<1/2)return q;
+  if(t<2/3)return p+(q-p)*(2/3-t)*6;
+  return p;
+}
+
+async function captureFrameset(){
+  log.info('Capturing frameset...');
+  await delay(200);
+  const ts = Date.now();
+  const resp = {
+    frame_number: frameCount, timestamp_us: ts*1000, timestamp_iso: nowISO(),
+    depth:  { width:640, height:576, format:"Y16", bytes_per_pixel:2, data_size_bytes:737280,
+              depth_scale_mm:1.0, min_depth_mm:rand(480,540,0), max_depth_mm:rand(3700,3900,0),
+              avg_depth_mm:rand(1200,1600,0), fps:rand(28,30,1), pixels_uint16:null },
+    color:  { width:1920, height:1080, format:"RGB888", bytes_per_pixel:3,
+              data_size_bytes:6220800, fps:rand(28,30,1), pixels_rgb:null },
+    ir:     { width:640, height:576, format:"Y16", data_size_bytes:737280 },
+    sync:   { hardware_sync:true, depth_color_offset_us:rand(-20,20,0) }
+  };
+  document.getElementById('responseJson').innerHTML = renderOrbbecFrame(resp);
+  document.querySelector('[data-target="tab-response"]').click();
+  log.success(`Frameset captured: depth=${resp.depth.width}×${resp.depth.height} color=${resp.color.width}×${resp.color.height}`);
+}
+
+async function capturePointCloud(){
+  log.info('Generating point cloud...');
+  await delay(400);
+  const n=307200;
+  const resp = {
+    point_cloud_id:`pc_${Date.now()}`, timestamp_iso:nowISO(), format:"XYZ_float32",
+    total_points:n, valid_points:Math.floor(n*rand(0.7,0.95,3)), unit:"mm",
+    coordinate_system:"camera_right_hand",
+    bounding_box:{ x:[-500,500], y:[-400,400], z:[500,3800] },
+    points_xyz:null,
+    sample_points:Array.from({length:5},()=>({x:rand(-400,400,1),y:rand(-300,300,1),z:rand(500,3500,1)})),
+    file_formats:["PLY","PCD","CSV"]
+  };
+  document.getElementById('pcJson').innerHTML = renderOrbbecPointCloud(resp);
+  document.querySelector('[data-target="tab-pointcloud"]').click();
+  log.success(`Point cloud: ${resp.valid_points.toLocaleString()} valid points`);
+}
+
+async function captureIMU(){
+  log.info('Reading IMU sensors...');
+  await delay(150);
+  const resp = {
+    imu_id:`imu_${Date.now()}`, timestamp_iso:nowISO(),
+    accelerometer:{ x_g:rand(-0.05,0.05,4), y_g:rand(-0.05,0.05,4), z_g:rand(0.97,1.03,4), unit:"g", sample_rate_hz:1600 },
+    gyroscope:    { x_dps:rand(-0.5,0.5,3), y_dps:rand(-0.5,0.5,3), z_dps:rand(-0.5,0.5,3), unit:"deg/s", sample_rate_hz:1600 },
+    temperature_c:rand(28,35,1)
+  };
+  document.getElementById('imuJson').innerHTML = renderOrbbecIMU(resp);
+  document.querySelector('[data-target="tab-imu"]').click();
+  log.success(`IMU: accel Z=${resp.accelerometer.z_g}g  temp=${resp.temperature_c}°C`);
+}
+</script>
+</body>
+</html>

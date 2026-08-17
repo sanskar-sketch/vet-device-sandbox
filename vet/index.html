@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<script src="../js/access-gate.js"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<title>Vitarus · Vet Portal</title>
+<link rel="stylesheet" href="../css/shared.css?v=2">
+<link rel="stylesheet" href="../css/redesign.css?v=3">
+<link rel="stylesheet" href="../css/report.css?v=4">
+<style>
+  .wizard-body { max-width: clamp(1000px, 95vw, 1700px); margin: 0 auto; padding: 28px 24px 60px; }
+  .app-header {
+    position: sticky; top: 0; z-index: 50;
+    background: rgba(22,27,34,.9); backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--border); padding: 14px 28px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .app-brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; }
+  .app-brand .logo { height: 30px; width: auto; }
+  .app-brand .sub { font-size: 11px; color: var(--text-muted); font-weight: 500; }
+
+  /* Tab bar */
+  .tab-bar {
+    display: flex; gap: 4px; border-bottom: 1px solid var(--border);
+    margin-bottom: 24px;
+  }
+  .tab-btn {
+    background: none; border: none; border-bottom: 2px solid transparent;
+    color: var(--text-muted); font-size: 13px; font-weight: 600;
+    padding: 10px 16px; cursor: pointer; transition: color .15s, border-color .15s;
+    margin-bottom: -1px;
+  }
+  .tab-btn:hover { color: var(--text); }
+  .tab-btn.active { color: var(--blue-light); border-bottom-color: var(--blue-light); }
+  .tab-badge {
+    display: inline-block; background: var(--orange); color: #1a1204;
+    font-size: 10px; font-weight: 700; border-radius: 10px;
+    padding: 1px 6px; margin-left: 5px; vertical-align: middle;
+  }
+
+  /* Panel title */
+  .panel-title { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
+  .panel-sub { color: var(--text-muted); font-size: 13px; margin-bottom: 20px; }
+
+  /* Queue */
+  .queue-item {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 14px 16px; margin-bottom: 10px; cursor: pointer; transition: border-color .15s;
+  }
+  .queue-item:hover { border-color: var(--blue-light); }
+  .queue-item .qi-name { font-weight: 700; font-size: 14px; }
+  .queue-item .qi-meta { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+
+  /* Sign panel */
+  .sign-panel {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 16px; margin-top: 20px; display: flex; flex-direction: column; gap: 10px;
+  }
+  .sign-panel textarea {
+    background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm);
+    color: var(--text); padding: 8px 10px; font-size: 13px; font-family: inherit;
+    min-height: 60px; resize: vertical;
+  }
+
+  /* Patient history (signed tab) */
+  .pet-history-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 14px 16px; margin-bottom: 10px; cursor: pointer; transition: border-color .15s;
+    display: flex; align-items: center; gap: 14px;
+  }
+  .pet-history-card:hover { border-color: var(--blue-light); }
+  .phc-thumb {
+    width: 44px; height: 44px; border-radius: var(--radius-sm);
+    background: var(--bg); border: 1px solid var(--border);
+    object-fit: contain; padding: 3px; flex-shrink: 0;
+  }
+  .phc-fallback {
+    width: 44px; height: 44px; border-radius: var(--radius-sm);
+    background: var(--bg); border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px; flex-shrink: 0;
+  }
+  .phc-name { font-weight: 700; font-size: 14px; }
+  .phc-meta { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+  .phc-right { margin-left: auto; color: var(--text-dim); font-size: 14px; }
+
+  /* Profile form */
+  .profile-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px;
+  }
+  @media (max-width: 600px) { .profile-grid { grid-template-columns: 1fr; } }
+
+  .back-btn { margin-bottom: 16px; }
+</style>
+<link rel="stylesheet" href="../css/redesign.css?v=3">
+<link rel="stylesheet" href="../css/experience.css?v=1">
+</head>
+<body>
+
+<div class="app-header">
+  <div class="app-brand">
+    <img class="logo" src="../assets/brand/logo-icon-64.png" alt="Vitarus">
+    <div><div>Vitarus</div><div class="sub">Vet Portal</div></div>
+  </div>
+  <div id="auth-strip-mount"></div>
+</div>
+
+<div class="wizard-body">
+
+  <section class="clinical-strip" aria-label="Vet review status">
+    <div class="clinical-strip-copy">
+      <div class="clinical-strip-kicker">Clinical Review Desk</div>
+      <h2>Read the signals. Add your judgment. Release with confidence.</h2>
+      <p>Every report stays private until your clinical review and digital signature are complete.</p>
+    </div>
+    <div class="clinical-metric"><span class="pulse"></span> SIGN-OFF GATE · ACTIVE</div>
+  </section>
+
+  <!-- ── TAB BAR ─────────────────────────────────────────────────────────── -->
+  <div class="tab-bar" id="main-tab-bar">
+    <button class="tab-btn active" data-tab="queue">
+      Pending Review <span class="tab-badge" id="queue-badge" style="display:none;"></span>
+    </button>
+    <button class="tab-btn" data-tab="history">Patient History</button>
+    <button class="tab-btn" data-tab="profile">My Profile</button>
+  </div>
+
+  <!-- ══ TAB: Pending Review ═══════════════════════════════════════════════ -->
+  <div id="tab-queue">
+
+    <!-- Queue list -->
+    <div id="view-queue">
+      <div class="panel-title">Pending Review</div>
+      <div class="panel-sub">Exams submitted by staff — nothing here has reached an owner yet.</div>
+      <div id="queue-list"><span class="text-muted">Loading…</span></div>
+    </div>
+
+    <!-- Single exam detail / sign -->
+    <div id="view-exam" style="display:none;">
+      <button class="btn btn-secondary back-btn" id="btn-back-to-queue">← Back to pending review</button>
+      <div id="exam-report-content"></div>
+      <div class="sign-panel" id="sign-panel">
+        <div class="panel-title" style="font-size:15px;margin-bottom:0;">Sign &amp; Release</div>
+        <p class="text-muted" style="font-size:12px;">Signing freezes this report and makes it visible to the owner, with your name attached.</p>
+        <textarea id="vet-notes" placeholder="Optional notes for the record (e.g. follow-up interval)"></textarea>
+        <div class="text-muted" id="sign-status" style="min-height:16px;"></div>
+        <button class="btn btn-primary" id="btn-sign" style="align-self:flex-start;">Sign &amp; Release to Owner</button>
+      </div>
+    </div>
+
+  </div><!-- /tab-queue -->
+
+  <!-- ══ TAB: Patient History ═══════════════════════════════════════════════ -->
+  <div id="tab-history" style="display:none;">
+
+    <!-- Patient list (all patients with signed exams) -->
+    <div id="view-patients">
+      <div class="panel-title">Patient History</div>
+      <div class="panel-sub">All patients with at least one signed report. Click to view or compare exams.</div>
+      <div id="patient-list"><span class="text-muted">Loading…</span></div>
+    </div>
+
+    <!-- Per-patient exam list -->
+    <div id="view-pet-exams" style="display:none;">
+      <button class="btn btn-secondary back-btn" id="btn-back-to-patients">← Back to patients</button>
+      <div id="pet-exams-banner"></div>
+      <div class="compare-bar" id="vet-compare-bar" style="display:none;">
+        <span class="cb-hint" id="vet-compare-hint">Select <b>2</b> reports to compare</span>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-secondary" id="btn-vet-compare-clear">Clear</button>
+          <button class="btn btn-primary" id="btn-vet-compare-go" disabled>Compare →</button>
+        </div>
+      </div>
+      <div class="detail-section-title" id="pet-exams-label">Reports</div>
+      <div id="pet-exams-list"></div>
+    </div>
+
+    <!-- Single signed report (read-only) -->
+    <div id="view-history-report" style="display:none;">
+      <button class="btn btn-secondary back-btn" id="btn-back-to-pet-exams">← Back to reports</button>
+      <div id="history-report-content"></div>
+    </div>
+
+    <!-- Compare two reports -->
+    <div id="view-history-compare" style="display:none;">
+      <button class="btn btn-secondary back-btn" id="btn-back-from-compare">← Back to reports</button>
+      <div id="history-compare-content"></div>
+    </div>
+
+  </div><!-- /tab-history -->
+
+  <!-- ══ TAB: My Profile ════════════════════════════════════════════════════ -->
+  <div id="tab-profile" style="display:none;">
+    <div class="panel-title">My Profile</div>
+    <div class="panel-sub">Updates are saved immediately and visible to clinic admin.</div>
+    <div class="card">
+      <div class="card-body">
+        <div class="profile-grid">
+          <div class="form-group"><label>Full name</label><input type="text" id="prof-name" placeholder="Dr. Jane Smith"></div>
+          <div class="form-group"><label>Email</label><input type="email" id="prof-email" disabled style="opacity:.5;cursor:not-allowed;" title="Email cannot be changed here"></div>
+          <div class="form-group"><label>Phone</label><input type="tel" id="prof-phone" placeholder="+1 555 000 0000"></div>
+          <div class="form-group"><label>Specialty</label><input type="text" id="prof-specialty" placeholder="e.g. Internal Medicine"></div>
+          <div class="form-group" style="grid-column:1/-1;"><label>Clinic / Practice name</label><input type="text" id="prof-clinic" placeholder="e.g. Paws &amp; Claws Animal Hospital"></div>
+        </div>
+        <div style="margin-top:14px;display:flex;align-items:center;gap:12px;">
+          <button class="btn btn-primary" id="btn-save-profile">Save changes</button>
+          <span id="profile-status" style="font-size:12.5px;min-height:16px;"></span>
+        </div>
+      </div>
+    </div>
+  </div><!-- /tab-profile -->
+
+</div><!-- /wizard-body -->
+
+<script src="../js/auth-guard.js?v=2"></script>
+<script src="../js/utils.js?v=3"></script>
+<script src="../js/report-view.js?v=2"></script>
+<script src="../js/vet-portal.js?v=3"></script>
+</body>
+</html>

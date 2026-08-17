@@ -1,0 +1,1233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<script src="../js/access-gate.js"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<title>Vitarus · Clinic Dashboard</title>
+<link rel="stylesheet" href="../css/shared.css?v=2">
+<link rel="stylesheet" href="../css/redesign.css?v=3">
+<link rel="stylesheet" href="../css/experience.css?v=1">
+<link rel="stylesheet" href="../css/app.css?v=21">
+<link rel="stylesheet" href="../css/report.css?v=4">
+</head>
+<body>
+
+<div class="app-header">
+  <div class="app-brand">
+    <img class="logo" src="../assets/brand/logo-icon-64.png" alt="Vitarus">
+    <div>
+      <div>Vitarus</div>
+      <div class="sub">Clinic Dashboard</div>
+    </div>
+  </div>
+  <div class="stepper" id="stepper"></div>
+  <div id="auth-strip-mount"></div>
+</div>
+
+<div class="wizard-body">
+
+  <section class="clinical-strip" aria-label="Clinical command center status">
+    <div class="clinical-strip-copy">
+      <div class="clinical-strip-kicker">Clinical Command Center</div>
+      <h2>One patient. Six signals. One vet-reviewed picture.</h2>
+      <p>Capture clean intake data, keep every instrument visible, and hand the vet a report they can sign with confidence.</p>
+    </div>
+    <div class="clinical-metric"><span class="pulse"></span> MULTI_MODAL LINK · READY</div>
+  </section>
+
+  <!-- ── STEP 1 · Patient Intake ─────────────────────────────────────────── -->
+  <div class="step-panel active" id="panel-intake">
+    <div class="panel-title">Patient Station</div>
+    <div class="panel-sub">Create the patient profile before examination. Non-sedated, non-invasive intake.</div>
+
+    <div class="intake-layout">
+      <div class="intake-form-card">
+        <div class="intake-card-title">Patient Details</div>
+
+        <div class="form-group owner-lookup-group">
+          <label>Owner email</label>
+          <div class="lab-owner-search">
+            <input type="email" id="p-owner" placeholder="e.g. owner@example.com">
+            <button class="btn btn-secondary" id="btn-owner-pet-search" type="button">Find pets</button>
+          </div>
+          <p class="text-muted" style="font-size:11.5px;margin-top:6px;">Find an existing owner to select one of their pets and auto-fill this form — or just continue below for a new patient.</p>
+          <div id="owner-pet-search-results" class="owner-pet-results"></div>
+        </div>
+
+        <div class="intake-grid">
+          <div class="form-group">
+            <label>Patient Name</label>
+            <input type="text" id="p-name" placeholder="e.g. Biscuit">
+          </div>
+          <div class="form-group">
+            <label>Species</label>
+            <select id="p-species">
+              <option>Canine</option>
+              <option>Feline</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Breed</label>
+            <select id="p-breed"></select>
+          </div>
+          <div class="form-group">
+            <label>Sex</label>
+            <select id="p-sex">
+              <option>Male (Intact)</option>
+              <option>Male (Neutered)</option>
+              <option>Female (Intact)</option>
+              <option>Female (Spayed)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Age (years)</label>
+            <input type="number" id="p-age" min="0" max="25" step="0.5" value="5">
+          </div>
+          <div class="form-group">
+            <label>Color / Markings</label>
+            <input type="text" id="p-color" placeholder="e.g. Black &amp; tan, white chest patch">
+          </div>
+          <div class="form-group" style="grid-column:1/-1;">
+            <label>Known allergies</label>
+            <input type="text" id="p-allergies" placeholder="e.g. Chicken, penicillin — leave blank if none">
+          </div>
+          <div class="form-group" style="grid-column:1/-1;">
+            <label>Existing conditions / notes</label>
+            <textarea id="p-medical-notes" rows="2" placeholder="e.g. Mild hip dysplasia, prior TPLO surgery in 2023"></textarea>
+          </div>
+        </div>
+      </div>
+
+      <div class="intake-preview-card">
+        <div class="intake-card-title">Patient Preview</div>
+        <div class="breed-preview-wrap">
+          <img id="breed-preview-img" class="breed-preview-img" src="" alt="Patient preview">
+        </div>
+        <div class="breed-preview-caption" id="breed-preview-caption">Canine · Labrador Retriever</div>
+      </div>
+    </div>
+
+    <div class="intake-form-card" style="margin-top:14px;">
+      <div class="intake-card-title">Intake Capture</div>
+      <div class="intake-actions">
+        <div class="intake-action-card" id="card-microchip">
+          <div class="ic">🪪</div>
+          <div>Scan Microchip</div>
+          <div class="result" id="result-microchip"></div>
+        </div>
+        <div class="intake-action-card" id="card-weight">
+          <div class="ic">⚖️</div>
+          <div>Capture Weight</div>
+          <div class="result" id="result-weight"></div>
+        </div>
+        <div class="intake-action-card" id="card-bcs">
+          <div class="ic">📷</div>
+          <div>Capture Body Photo</div>
+          <div class="result" id="result-bcs"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="text-muted" id="intake-error" style="color:var(--red);min-height:16px;"></div>
+    <div class="wizard-nav">
+      <span></span>
+      <button class="btn btn-primary" id="btn-to-detect">Continue → Hardware Detection</button>
+    </div>
+
+    <div class="card" style="margin-top:24px;">
+      <div class="card-header">My Submitted Exams</div>
+      <div class="card-body" id="my-exams-list">
+        <span class="text-muted">Loading…</span>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:14px;">
+      <div class="card-header">Patient Records</div>
+      <div class="card-body">
+        <p class="text-muted" style="font-size:12px;margin-bottom:8px;">Look up any patient to see the owner's contact details and their full report history.</p>
+        <div style="display:flex;gap:8px;">
+          <input type="text" id="patient-search-input" placeholder="Search by patient name, owner email, or microchip…" style="flex:1;">
+          <button class="btn btn-secondary" id="btn-patient-search">Search</button>
+        </div>
+        <div id="patient-search-results" style="margin-top:12px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── STEP 2 · Hardware Detection ─────────────────────────────────────── -->
+  <div class="step-panel" id="panel-detect">
+    <div class="panel-title">Hardware Detection</div>
+    <div class="panel-sub">Probing every module's configured IP / port / WebSocket bridge endpoint against the patient's own clinical map.</div>
+
+    <div class="card" style="margin-top:14px;">
+      <div class="console-log" id="scan-console"></div>
+    </div>
+
+    <div id="detect-map-container"></div>
+
+    <div class="wizard-nav">
+      <button class="btn btn-secondary" data-back>← Back</button>
+      <div class="detect-actions">
+        <button class="btn btn-blue" id="btn-scan">🔍 Detect All Hardware</button>
+        <button class="btn btn-primary" id="btn-to-exam" disabled>Continue</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── STEP 3 · Run Exam ────────────────────────────────────────────────── -->
+  <div class="step-panel" id="panel-exam">
+    <div class="panel-title">Run Exam</div>
+    <div class="panel-sub">Each instrument connects, acquires, and runs its AI model in sequence — watch the dock and the patient map.</div>
+
+    <button class="btn btn-blue" id="btn-run-exam">▶ Run Full Exam</button>
+
+    <div id="exam-map-container"></div>
+
+    <div class="wizard-nav">
+      <button class="btn btn-secondary" data-back>← Back</button>
+      <button class="btn btn-primary" id="btn-to-report" disabled>Continue → Review & Submit</button>
+    </div>
+  </div>
+
+  <!-- ── STEP 4 · Review & Submit for Vet Sign-off ───────────────────────── -->
+  <div class="step-panel" id="panel-report">
+    <div class="panel-title">Review & Submit</div>
+    <div class="panel-sub" id="report-sub">This preview is for your reference only — nothing reaches the owner until a vet reviews and signs it.</div>
+
+    <div class="form-group" id="vet-assign-group" style="max-width:360px;margin-bottom:16px;">
+      <label>Send to vet for review</label>
+      <select id="assign-vet-select">
+        <option value="">No preference — any available vet</option>
+      </select>
+    </div>
+
+    <div id="report-content"></div>
+
+    <div class="text-muted" id="submit-status" style="min-height:16px;margin-top:10px;"></div>
+    <div class="wizard-nav">
+      <button class="btn btn-secondary" data-back>← Back</button>
+      <button class="btn btn-secondary" id="btn-export">⬇ Export JSON</button>
+      <button class="btn btn-secondary" id="btn-restart">↻ New Exam</button>
+      <button class="btn btn-primary" id="btn-submit-review">Submit for Vet Review</button>
+    </div>
+  </div>
+
+</div>
+
+<div class="modal-overlay" id="patient-modal-overlay" style="display:none;">
+  <div class="modal-box">
+    <button class="btn btn-secondary" id="btn-patient-modal-close" style="float:right;">✕ Close</button>
+    <div id="patient-modal-list-content"></div>
+    <div id="patient-modal-report-content" style="display:none;">
+      <button class="btn btn-secondary" id="btn-patient-modal-report-back" style="margin-bottom:14px;">← Back to patient record</button>
+      <div id="patient-modal-report-body"></div>
+    </div>
+  </div>
+</div>
+
+<style>
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 200;
+    display: flex; align-items: flex-start; justify-content: center; padding: 40px 20px; overflow-y: auto;
+  }
+  .modal-box {
+    background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 24px; max-width: 760px; width: 100%;
+  }
+</style>
+
+<script src="../js/auth-guard.js?v=2"></script>
+<script src="../js/utils.js?v=3"></script>
+<script src="../js/driver-base.js?v=8"></script>
+<script src="../js/drivers/orbbec.js?v=3"></script>
+<script src="../js/drivers/flir.js?v=5"></script>
+<script src="../js/drivers/clarius.js?v=3"></script>
+<script src="../js/drivers/vemo-tekscan-vetscan.js?v=4"></script>
+<script src="../js/drivers/patient-station.js?v=3"></script>
+<script src="../js/hardware-registry.js?v=5"></script>
+<script src="../js/hardware-scan.js?v=3"></script>
+<script src="../js/vet-knowledge-base.js?v=1"></script>
+<script src="../js/ai-analysis.js?v=7"></script>
+<script src="../js/fusion-engine.js?v=6"></script>
+<script src="../js/result-renderer.js?v=3"></script>
+<script src="../js/clinical-map.js?v=16"></script>
+<script src="../js/sensor-viz.js?v=4"></script>
+<script src="../js/report-view.js?v=2"></script>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════════════
+   Vitarus clinic staff app — patient intake, hardware detection, the exam
+   run, and submitting the fusion report for vet review. This step no
+   longer produces a final report on its own; a vet must sign it off
+   (see /vet/) before an owner can see anything.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+let currentUser = null;
+
+const STEPS = ['intake', 'detect', 'exam', 'report'];
+const STEP_LABELS = { intake: 'Patient', detect: 'Detect', exam: 'Exam', report: 'Review' };
+let currentStep = 0;
+
+const state = {
+  patient: { name: '', species: 'Canine', breed: '', breedKey: '', sex: '', age_years: 5, ownerEmail: '', microchip: null, weight_kg: null, color: '', allergies: '', medicalNotes: '', bcsPhotoId: null, petId: null },
+  hwResults: [],
+  moduleResults: {},
+  report: null,
+  submitted: false
+};
+
+/* ── Module definitions (semantic keys shared by both maps) ─────────────────── */
+const MODULE_DEFS = {
+  patientStation: { key: 'patientStation', icon: '🪪', name: 'Patient Station', color: 'var(--brand-teal)' },
+  structural:     { key: 'structural',     icon: '🎥', name: 'Structural Imaging', color: 'var(--mod-structural)' },
+  blood:          { key: 'blood',          icon: '🩸', name: 'Blood Biomarkers', color: 'var(--mod-blood)' },
+  gait:           { key: 'gait',           icon: '🐾', name: 'Gait Analysis', color: 'var(--mod-gait)' },
+  thermal:        { key: 'thermal',        icon: '🌡️', name: 'Thermal Imaging', color: 'var(--mod-thermal)' },
+  ultrasound:     { key: 'ultrasound',     icon: '🔊', name: 'Ultrasound', color: 'var(--mod-ultrasound)' },
+  cardiac:        { key: 'cardiac',        icon: '💓', name: 'Cardiac Analysis', color: 'var(--mod-cardiac)' }
+};
+const HW_KEY_TO_SEMANTIC = {
+  orbbec: 'structural', flir: 'thermal', clarius: 'ultrasound', vemo: 'cardiac', tekscan: 'gait', vetscan: 'blood',
+  patientStation: 'patientStation'
+};
+const SEMANTIC_TO_HW_KEY = Object.fromEntries(Object.entries(HW_KEY_TO_SEMANTIC).map(([hw, sem]) => [sem, hw]));
+const MODULES = [
+  MODULE_DEFS.thermal, MODULE_DEFS.ultrasound, MODULE_DEFS.cardiac, MODULE_DEFS.blood, MODULE_DEFS.gait, MODULE_DEFS.structural
+];
+
+let detectMap = null;
+let examMap = null;
+
+function staffEscapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+}
+
+/* ── Stepper ─────────────────────────────────────────────────────────────── */
+function renderStepper() {
+  const el = document.getElementById('stepper');
+  el.innerHTML = STEPS.map((s, i) => {
+    const cls = i === currentStep ? 'active' : i < currentStep ? 'done' : '';
+    const connector = i < STEPS.length - 1 ? `<div class="step-connector ${i < currentStep ? 'done' : ''}"></div>` : '';
+    return `<div class="step ${cls}"><span class="num">${i < currentStep ? '✓' : i + 1}</span>${STEP_LABELS[s]}</div>${connector}`;
+  }).join('');
+}
+
+function goToStep(i) {
+  currentStep = i;
+  STEPS.forEach((s, idx) => document.getElementById('panel-' + s).classList.toggle('active', idx === i));
+  renderStepper();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  if (detectMap) setTimeout(() => detectMap.recomputeConnectors(), 50);
+  if (examMap) setTimeout(() => examMap.recomputeConnectors(), 50);
+}
+
+document.querySelectorAll('[data-back]').forEach(btn => btn.addEventListener('click', () => goToStep(Math.max(0, currentStep - 1))));
+
+/* ── Global sim/real banner ──────────────────────────────────────────────── */
+(function injectBanner() {
+  const isReal = DeviceConfig.USE_REAL_DEVICE;
+  const banner = document.createElement('div');
+  banner.style.cssText = `position:fixed;bottom:0;left:0;right:0;z-index:999;
+    background:${isReal ? '#0f2d1a' : '#1a1a2a'};border-top:2px solid ${isReal ? '#3fb950' : '#58a6ff'};
+    padding:6px 20px;font-size:12px;font-family:monospace;text-align:center;`;
+  banner.innerHTML = isReal
+    ? `🟢 <strong style="color:#3fb950">REAL HARDWARE</strong> — pulling from configured bridges/endpoints`
+    : `🔵 <strong style="color:#58a6ff">SIMULATED DATA</strong> — flip <code style="color:#ffaa44">DeviceConfig.USE_REAL_DEVICE</code> in <code>js/driver-base.js</code> to go live`;
+  document.body.style.paddingBottom = '34px';
+  document.body.appendChild(banner);
+})();
+
+/* ── My Submitted Exams ──────────────────────────────────────────────────── */
+async function loadMyExams() {
+  const el = document.getElementById('my-exams-list');
+  try {
+    const res = await fetch('/api/exams?created_by=me', { credentials: 'same-origin' });
+    const exams = await res.json();
+    if (!exams.length) { el.innerHTML = `<span class="text-muted">No exams submitted yet.</span>`; return; }
+    el.innerHTML = exams.map(e => `
+      <div class="row" style="justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);">
+        <span>${e.pet.name} <span class="text-muted">(${e.pet.species})</span></span>
+        <span class="status-pill ${e.status === 'signed' ? 'status-200' : 'status-pending'}">${e.status === 'signed' ? '● Signed' : '● Awaiting review'}</span>
+      </div>`).join('');
+  } catch {
+    el.innerHTML = `<span class="text-muted">Could not load — is the backend running?</span>`;
+  }
+}
+
+/* ── Patient Records (owner detail + full report history) ─────────────────── */
+document.getElementById('btn-patient-search').addEventListener('click', searchPatients);
+document.getElementById('patient-search-input').addEventListener('keydown', e => { if (e.key === 'Enter') searchPatients(); });
+
+async function searchPatients() {
+  const q = document.getElementById('patient-search-input').value.trim();
+  const el = document.getElementById('patient-search-results');
+  el.innerHTML = '<span class="text-muted">Searching…</span>';
+  try {
+    const res = await fetch('/api/pets' + (q ? '?search=' + encodeURIComponent(q) : ''), { credentials: 'same-origin' });
+    const pets = await res.json();
+    if (!pets.length) { el.innerHTML = '<span class="text-muted">No patients found.</span>'; return; }
+    el.innerHTML = pets.map(p => `
+      <div class="row" data-pet-id="${p.id}" style="justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer;">
+        <span>${p.name} <span class="text-muted">(${p.species}${p.breed ? ' · ' + p.breed : ''})</span></span>
+        <span class="text-muted" style="font-size:12px;">${p.owner_email || 'no owner on file'} ›</span>
+      </div>`).join('');
+    el.querySelectorAll('[data-pet-id]').forEach(row =>
+      row.addEventListener('click', () => openPatientRecord(row.getAttribute('data-pet-id')))
+    );
+  } catch {
+    el.innerHTML = '<span class="text-muted">Could not search — is the backend running?</span>';
+  }
+}
+
+async function openPatientRecord(petId) {
+  const listEl = document.getElementById('patient-modal-list-content');
+  listEl.style.display = 'block';
+  listEl.innerHTML = '<span class="text-muted">Loading…</span>';
+  document.getElementById('patient-modal-report-content').style.display = 'none';
+  document.getElementById('patient-modal-overlay').style.display = 'flex';
+
+  try {
+    const [petRes, examsRes] = await Promise.all([
+      fetch(`/api/pets/${petId}`, { credentials: 'same-origin' }),
+      fetch(`/api/exams/by-pet/${petId}`, { credentials: 'same-origin' })
+    ]);
+    const pet = await petRes.json();
+    const exams = await examsRes.json();
+
+    const ownerBlock = pet.owner
+      ? (pet.owner.registered
+          ? `<div class="oic-row"><b>Owner</b> ${pet.owner.name}</div>
+             <div class="oic-row"><b>Email</b> ${pet.owner.email}</div>
+             <div class="oic-row"><b>Phone</b> ${pet.owner.phone || '—'}</div>
+             <div class="oic-row"><b>Address</b> ${pet.owner.address || '—'}</div>`
+          : `<div class="oic-row"><b>Owner</b> Not yet registered on the portal</div>
+             <div class="oic-row"><b>Intake email</b> ${pet.owner.email}</div>`)
+      : `<div class="oic-row text-muted">No owner on file.</div>`;
+
+    listEl.innerHTML = `
+      <div class="panel-title" style="font-size:18px;">${pet.name}</div>
+      <div class="panel-sub">${pet.species}${pet.breed ? ' · ' + pet.breed : ''}${pet.sex ? ' · ' + pet.sex : ''}${pet.age_years != null ? ' · ' + pet.age_years + ' yrs' : ''}${pet.weight_kg != null ? ' · ' + pet.weight_kg + ' kg' : ''}${pet.microchip ? ' · chip ' + pet.microchip : ''}</div>
+      <div class="owner-info-card">${ownerBlock}</div>
+      <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--text-dim);margin-bottom:10px;">
+        Report History (${exams.length})
+      </div>
+      <div>
+        ${exams.length ? exams.map(e => `
+          <div class="detail-exam-row" data-exam-id="${e.id}">
+            <div class="der-left">
+              <div class="der-score" style="color:${scoreColor(e.report.overall_health_score)}">${e.report.overall_health_score}</div>
+              <div class="der-meta">
+                <span style="font-size:13px;font-weight:600;">Overall score /100</span>
+                <span class="der-date">${e.status === 'signed' ? 'Signed ' + new Date(e.signed_at).toLocaleDateString() : 'Submitted ' + new Date(e.created_at).toLocaleDateString()}</span>
+                ${e.signed_by_name ? `<span class="der-vet">Reviewed by ${e.signed_by_name}</span>` : ''}
+              </div>
+            </div>
+            <span class="status-pill ${e.status === 'signed' ? 'status-200' : 'status-pending'}">${e.status === 'signed' ? '● Signed' : '● Awaiting review'}</span>
+          </div>`).join('') : '<span class="text-muted">No reports on file yet.</span>'}
+      </div>`;
+
+    listEl.querySelectorAll('.detail-exam-row').forEach(row => {
+      row.addEventListener('click', () => openPatientReport(exams.find(e => String(e.id) === row.getAttribute('data-exam-id'))));
+    });
+  } catch {
+    listEl.innerHTML = '<span class="text-muted">Could not load patient record.</span>';
+  }
+}
+
+function openPatientReport(exam) {
+  if (!exam) return;
+  document.getElementById('patient-modal-list-content').style.display = 'none';
+  document.getElementById('patient-modal-report-content').style.display = 'block';
+  renderReport(document.getElementById('patient-modal-report-body'), exam.report, {
+    editable: false,
+    signedBanner: exam.status === 'signed' ? {
+      vetName: exam.signed_by_name || 'the reviewing vet',
+      signedAt: exam.signed_at,
+      notes: exam.vet_notes
+    } : null,
+    aiNarrativeHtml: exam.ai_narrative
+      ? exam.ai_narrative.split('\n').filter(p => p.trim()).map(p => `<p>${p}</p>`).join('')
+      : null,
+    showRawJson: false
+  });
+}
+
+document.getElementById('btn-patient-modal-report-back').addEventListener('click', () => {
+  document.getElementById('patient-modal-report-content').style.display = 'none';
+  document.getElementById('patient-modal-list-content').style.display = 'block';
+});
+
+document.getElementById('btn-patient-modal-close').addEventListener('click', () => {
+  document.getElementById('patient-modal-overlay').style.display = 'none';
+});
+
+/* ── STEP 1 · Patient Intake ─────────────────────────────────────────────── */
+document.getElementById('btn-owner-pet-search').addEventListener('click', searchOwnerPets);
+document.getElementById('p-owner').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); searchOwnerPets(); } });
+
+async function searchOwnerPets() {
+  const email = document.getElementById('p-owner').value.trim();
+  const el = document.getElementById('owner-pet-search-results');
+  if (!email) {
+    el.innerHTML = '<span class="text-muted">Enter an owner email to find their pets.</span>';
+    return;
+  }
+  el.innerHTML = '<span class="text-muted">Finding pets…</span>';
+  try {
+    const res = await fetch('/api/pets?owner_email=' + encodeURIComponent(email), { credentials: 'same-origin' });
+    if (!res.ok) throw new Error('search failed');
+    const pets = await res.json();
+    if (!pets.length) {
+      el.innerHTML = '<span class="text-muted">No pets found for that owner email — continue below to add a new patient.</span>';
+      return;
+    }
+    el.innerHTML = pets.map(p => `
+      <div class="owner-pet-row" data-owner-pet-id="${p.id}">
+        <div>
+          <div class="owner-pet-name">${staffEscapeHtml(p.name)}</div>
+          <div class="owner-pet-meta">
+            ${staffEscapeHtml(p.species)}${p.breed ? ' · ' + staffEscapeHtml(p.breed) : ''}${p.sex ? ' · ' + staffEscapeHtml(p.sex) : ''}${p.age_years != null ? ' · ' + staffEscapeHtml(p.age_years) + ' yrs' : ''}${p.weight_kg != null ? ' · ' + staffEscapeHtml(p.weight_kg) + ' kg' : ''}
+          </div>
+          <div class="owner-pet-meta">${staffEscapeHtml(p.owner_email || 'No owner email on file')}${p.microchip ? ' · chip ' + staffEscapeHtml(p.microchip) : ''}</div>
+        </div>
+        <button class="btn btn-secondary" data-select-owner-pet="${p.id}" type="button">Select</button>
+      </div>`).join('');
+    el.querySelectorAll('[data-select-owner-pet]').forEach(btn => {
+      const pet = pets.find(p => String(p.id) === btn.getAttribute('data-select-owner-pet'));
+      btn.addEventListener('click', () => selectOwnerPet(pet));
+    });
+  } catch {
+    el.innerHTML = '<span class="text-muted">Could not find pets — is the backend running?</span>';
+  }
+}
+
+function selectOwnerPet(pet) {
+  if (!pet) return;
+  const species = pet.species === 'Feline' ? 'Feline' : 'Canine';
+  document.getElementById('p-name').value = pet.name || '';
+  document.getElementById('p-species').value = species;
+  populateBreedOptions();
+
+  const breedSelect = document.getElementById('p-breed');
+  if (pet.breed_key && [...breedSelect.options].some(o => o.value === pet.breed_key)) {
+    breedSelect.value = pet.breed_key;
+  } else if (pet.breed) {
+    const option = [...breedSelect.options].find(o => o.textContent === pet.breed);
+    if (option) breedSelect.value = option.value;
+  }
+  updateBreedPreview();
+
+  if (pet.sex) document.getElementById('p-sex').value = pet.sex;
+  document.getElementById('p-age').value = pet.age_years ?? 5;
+  document.getElementById('p-owner').value = pet.owner_email || '';
+  document.getElementById('p-color').value = pet.color || '';
+  document.getElementById('p-allergies').value = pet.allergies || '';
+  document.getElementById('p-medical-notes').value = pet.medical_notes || '';
+
+  state.patient = {
+    ...state.patient,
+    name: pet.name || '',
+    species,
+    breedKey: breedSelect.value,
+    breed: breedSelect.selectedOptions[0]?.text || pet.breed || '',
+    sex: pet.sex || document.getElementById('p-sex').value,
+    age_years: Number(pet.age_years ?? 5),
+    ownerEmail: pet.owner_email || '',
+    microchip: pet.microchip || null,
+    weight_kg: pet.weight_kg != null ? Number(pet.weight_kg) : null,
+    color: pet.color || '',
+    allergies: pet.allergies || '',
+    medicalNotes: pet.medical_notes || '',
+    petId: pet.id
+  };
+
+  document.getElementById('result-microchip').textContent = state.patient.microchip ? `#${state.patient.microchip}` : '';
+  document.getElementById('card-microchip').classList.toggle('captured', Boolean(state.patient.microchip));
+  document.getElementById('result-weight').textContent = state.patient.weight_kg != null ? `${state.patient.weight_kg} kg` : '';
+  document.getElementById('card-weight').classList.toggle('captured', state.patient.weight_kg != null);
+  document.getElementById('intake-error').textContent = '';
+
+  document.querySelectorAll('.owner-pet-row').forEach(row => row.classList.toggle('selected', row.getAttribute('data-owner-pet-id') === String(pet.id)));
+}
+
+function populateBreedOptions() {
+  const species = document.getElementById('p-species').value;
+  const select = document.getElementById('p-breed');
+  const list = BREED_LIST[species] || BREED_LIST.Canine;
+  select.innerHTML = list.map(b => `<option value="${b.key}">${b.label}</option>`).join('');
+  updateBreedPreview();
+}
+function updateBreedPreview() {
+  const species = document.getElementById('p-species').value;
+  const select = document.getElementById('p-breed');
+  const label = select.selectedOptions[0]?.text || '';
+  document.getElementById('breed-preview-img').src = breedImagePath(species, select.value);
+  document.getElementById('breed-preview-caption').textContent = `${species} · ${label}`;
+}
+document.getElementById('p-species').addEventListener('change', populateBreedOptions);
+document.getElementById('p-breed').addEventListener('change', updateBreedPreview);
+populateBreedOptions();
+
+document.getElementById('card-microchip').addEventListener('click', async () => {
+  const card = document.getElementById('card-microchip');
+  const out = document.getElementById('result-microchip');
+  card.classList.remove('captured');
+  out.textContent = 'Scanning…';
+  const driver = DriverFactory.get('patientStation');
+  await driver.connect();
+  const chip = await driver.scanMicrochip();
+  state.patient.microchip = chip.chip_id;
+  out.textContent = `#${chip.chip_id}`;
+  card.classList.add('captured');
+});
+
+document.getElementById('card-weight').addEventListener('click', async () => {
+  const card = document.getElementById('card-weight');
+  const out = document.getElementById('result-weight');
+  card.classList.remove('captured');
+  out.textContent = 'Reading…';
+  const driver = DriverFactory.get('patientStation');
+  await driver.connect();
+  const w = await driver.readWeight();
+  state.patient.weight_kg = w.weight_kg;
+  out.textContent = `${w.weight_kg} kg`;
+  card.classList.add('captured');
+});
+
+document.getElementById('card-bcs').addEventListener('click', async () => {
+  const card = document.getElementById('card-bcs');
+  const out = document.getElementById('result-bcs');
+  card.classList.remove('captured');
+  out.textContent = 'Capturing…';
+  const driver = DriverFactory.get('patientStation');
+  await driver.connect();
+  const photo = await driver.captureBodyPhoto();
+  state.patient.bcsPhotoId = photo.image_id;
+  out.textContent = `Captured ✓`;
+  card.classList.add('captured');
+});
+
+document.getElementById('btn-to-detect').addEventListener('click', async () => {
+  const breedSelect = document.getElementById('p-breed');
+  state.patient.name = document.getElementById('p-name').value.trim();
+  state.patient.species = document.getElementById('p-species').value;
+  state.patient.breedKey = breedSelect.value;
+  state.patient.breed = breedSelect.selectedOptions[0]?.text || '';
+  state.patient.sex = document.getElementById('p-sex').value;
+  state.patient.age_years = parseFloat(document.getElementById('p-age').value) || 0;
+  state.patient.ownerEmail = document.getElementById('p-owner').value.trim();
+  state.patient.color = document.getElementById('p-color').value.trim();
+  state.patient.allergies = document.getElementById('p-allergies').value.trim();
+  state.patient.medicalNotes = document.getElementById('p-medical-notes').value.trim();
+
+  const err = document.getElementById('intake-error');
+  if (!state.patient.name || state.patient.weight_kg == null) {
+    err.textContent = 'Enter a patient name and capture weight before continuing.';
+    return;
+  }
+  err.textContent = '';
+
+  if (!state.patient.petId) {
+    const btn = document.getElementById('btn-to-detect');
+    btn.disabled = true;
+    btn.textContent = 'Creating patient record…';
+    try {
+      const res = await fetch('/api/pets', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+        body: JSON.stringify({
+          name: state.patient.name, species: state.patient.species, breed: state.patient.breed,
+          breedKey: state.patient.breedKey, sex: state.patient.sex, age_years: state.patient.age_years,
+          weight_kg: state.patient.weight_kg, microchip: state.patient.microchip,
+          color: state.patient.color || null, allergies: state.patient.allergies || null,
+          medical_notes: state.patient.medicalNotes || null,
+          owner_email: state.patient.ownerEmail || null
+        })
+      });
+      if (!res.ok) throw new Error((await res.json()).error || 'could not create patient record');
+      const pet = await res.json();
+      state.patient.petId = pet.id;
+    } catch (e) {
+      err.textContent = `Could not save patient record: ${e.message}`;
+      btn.disabled = false;
+      btn.textContent = 'Continue → Hardware Detection';
+      return;
+    }
+    btn.disabled = false;
+    btn.textContent = 'Continue → Hardware Detection';
+  }
+
+  detectMap = new ClinicalMap(
+    document.getElementById('detect-map-container'), state.patient.species,
+    [MODULE_DEFS.structural, MODULE_DEFS.blood, MODULE_DEFS.gait],
+    [MODULE_DEFS.thermal, MODULE_DEFS.ultrasound, MODULE_DEFS.cardiac],
+    [MODULE_DEFS.patientStation],
+    state.patient.breedKey
+  );
+  goToStep(1);
+});
+
+/* ── STEP 2 · Hardware Detection ─────────────────────────────────────────── */
+let detectStops = {};
+
+document.getElementById('btn-scan').addEventListener('click', async () => {
+  const btn = document.getElementById('btn-scan');
+  const continueBtn = document.getElementById('btn-to-exam');
+  btn.disabled = true;
+  btn.textContent = 'Scanning…';
+  continueBtn.disabled = true;
+  const logger = new SandboxLogger('scan-console');
+  logger.clear();
+  logger.info('Starting network / port discovery across all registered modules…');
+  detectStops = {};
+
+  const results = await runHardwareScan(
+    logger,
+    (result) => {
+      const key = HW_KEY_TO_SEMANTIC[result.key];
+      const hasVisual = DETECT_VISUAL_MODULES.includes(key);
+      if (detectStops[key]) { detectStops[key](); delete detectStops[key]; }
+
+      if (result.ok) {
+        const infoRows = Object.entries(result.info).map(([k, v]) => `<div class="spec-row"><span class="spec-label">${k.replace(/_/g, ' ')}</span>${v}</div>`).join('');
+        if (hasVisual) {
+          detectMap.setState(key, 'done', { status: '' });
+          const bodyEl = detectMap.container.querySelector(`#dock-${key}-body`);
+          if (bodyEl) bodyEl.insertAdjacentHTML('beforeend', `<div class="spec-block">${infoRows}</div>`);
+        } else {
+          detectMap.setState(key, 'done', { status: '', bodyHtml: `<div class="spec-block">${infoRows}</div>` });
+        }
+      } else {
+        detectMap.setState(key, 'fail', { status: result.error || 'Connection failed' });
+      }
+    },
+    (hw) => {
+      const key = HW_KEY_TO_SEMANTIC[hw.key];
+      const hasVisual = DETECT_VISUAL_MODULES.includes(key);
+      detectMap.setState(key, 'active', {
+        status: `Probing ${hw.endpoint}…`,
+        bodyHtml: hasVisual ? sensorCanvasHTML('detect', key) : undefined
+      });
+      if (hasVisual) detectStops[key] = startSensorAnim('detect', key);
+    }
+  );
+
+  state.hwResults = results;
+  logger.info(`Scan complete — ${results.filter(r => r.ok).length}/${results.length} modules online.`);
+  btn.disabled = false;
+  btn.textContent = '🔍 Re-scan Hardware';
+  continueBtn.disabled = results.some(r => !r.ok);
+});
+
+document.getElementById('btn-to-exam').addEventListener('click', () => {
+  examMap = new ClinicalMap(
+    document.getElementById('exam-map-container'), state.patient.species,
+    [MODULE_DEFS.structural, MODULE_DEFS.blood, MODULE_DEFS.gait],
+    [MODULE_DEFS.thermal, MODULE_DEFS.ultrasound, MODULE_DEFS.cardiac],
+    [],
+    state.patient.breedKey
+  );
+
+  // Idle state here shouldn't repeat the Detect step's spec sheet — show what
+  // was actually just found on the network instead, so this step reads as a
+  // continuation, not a duplicate.
+  MODULES.forEach(m => {
+    const hw = state.hwResults.find(r => r.key === SEMANTIC_TO_HW_KEY[m.key]);
+    const bodyEl = examMap.container.querySelector(`#dock-${m.key}-body`);
+    if (!bodyEl) return;
+    if (hw && hw.ok) {
+      const model = hw.info.model || hw.info.name || hw.info.system || hw.info.station || 'Connected';
+      bodyEl.innerHTML = `<div class="spec-block"><div class="spec-row"><span class="spec-label">Ready</span>${model} — connected, awaiting capture</div></div>`;
+    } else {
+      bodyEl.innerHTML = `<div class="spec-block"><div class="spec-row"><span class="spec-label">Warning</span>Not confirmed online — re-run detection first</div></div>`;
+    }
+  });
+
+  goToStep(2);
+});
+
+/* ── STEP 3 · Run Exam — staged, reported captures ───────────────────────── */
+async function captureThermal(report) {
+  report('Connecting to FLIR camera…');
+  const driver = DriverFactory.get('flir');
+  await driver.connect();
+  report('Sampling — Left Forelimb spot');
+  const leftFore = await driver.getSpot(1);  leftFore.name = 'Left Forelimb';
+  report('Sampling — Right Forelimb spot');
+  const rightFore = await driver.getSpot(2); rightFore.name = 'Right Forelimb';
+  report('Sampling — Left Hindlimb spot');
+  const leftHind = await driver.getSpot(3);  leftHind.name = 'Left Hindlimb';
+  report('Sampling — Right Hindlimb spot');
+  const rightHind = await driver.getSpot(4); rightHind.name = 'Right Hindlimb';
+  report('Sampling — Trunk ROI box');
+  const trunk = await driver.getBox(1);      trunk.name = 'Trunk';
+  report('Checking alarm thresholds');
+  const alarms = await driver.getAlarms();
+  report('Reading ambient environment sensor');
+  const environment = await driver.getEnvironment();
+  await driver.disconnect();
+  report('Running inflammation / asymmetry AI model…');
+  const raw = { leftFore, rightFore, leftHind, rightHind, trunk, alarms, environment };
+  const analysis = analyzeThermal(raw, state.patient);
+  return { raw, analysis };
+}
+
+async function captureUltrasound(report) {
+  report('Connecting to Clarius probe…');
+  const driver = DriverFactory.get('clarius');
+  await driver.connect();
+  report('Capturing raw IQ sweep…');
+  const iq = await driver.captureRawIQ();
+  await driver.disconnect();
+  report('Running organ-segmentation AI…');
+  const raw = { iq };
+  return { raw, analysis: analyzeUltrasound(raw) };
+}
+
+async function captureCardiac(report) {
+  report('Connecting to VEMO multiparameter monitor…');
+  const driver = DriverFactory.get('vemo');
+  await driver.connect();
+  report('Recording 6-lead ECG (6s)…');
+  const ecg = await driver.captureRecord(6);
+  report('Reading pulse oximetry + NIBP cuff…');
+  const vitals = await driver.captureVitals();
+  await driver.disconnect();
+  report('Running rhythm-classification AI…');
+  const raw = { ecg, vitals };
+  return { raw, analysis: analyzeCardiac(raw, state.patient) };
+}
+
+async function captureBlood(report) {
+  report('Connecting to Vetscan analyzer…');
+  const driver = DriverFactory.get('vetscan');
+  await driver.connect();
+  const pid = state.patient.microchip || state.patient.name;
+  report('Running chemistry panel — 0%');
+  const chem = await driver.runAnalysis(
+    { patient_id: pid, rotor_type: 'Comprehensive Diagnostic Profile', sample_type: 'whole_blood', model: 'vs2' },
+    pct => report(`Running chemistry panel — ${pct}%`)
+  );
+  report('Running CBC panel — 0%');
+  const cbc = await driver.runAnalysis(
+    { patient_id: pid, rotor_type: 'CBC', sample_type: 'whole_blood', model: 'opticell' },
+    pct => report(`Running CBC panel — ${pct}%`)
+  );
+  await driver.disconnect();
+  report('Running disease-likelihood AI…');
+  const raw = { chem, cbc };
+  return { raw, analysis: analyzeBlood(raw, state.patient) };
+}
+
+async function captureGait(report, onFrame) {
+  report('Connecting to Tekscan mat…');
+  const driver = DriverFactory.get('tekscan');
+  await driver.connect();
+  const frames = [];
+  await new Promise(resolve => {
+    driver.on('frame', f => {
+      frames.push(f);
+      if (onFrame) onFrame(f);
+      report(`Streaming pressure frames — ${frames.length}/24`);
+      if (frames.length >= 24) { driver.stopStream(); resolve(); }
+    });
+    driver.startStream();
+  });
+  await driver.disconnect();
+  report('Running gait-symmetry AI…');
+  const cols = driver.config.cols || 64;
+  const analysis = analyzeGait(frames, cols, state.patient);
+  return { raw: { frame_count: frames.length, sample_frames: frames.slice(0, 2) }, analysis };
+}
+
+async function captureStructural(report) {
+  report('Connecting to Orbbec depth camera…');
+  const driver = DriverFactory.get('orbbec');
+  await driver.connect();
+  report('Capturing depth point cloud…');
+  const pointCloud = await driver.capturePointCloud();
+  await driver.disconnect();
+  report('Running body-condition AI…');
+  const raw = { pointCloud };
+  return { raw, analysis: analyzeStructural(raw) };
+}
+
+const CAPTURE_FNS = {
+  thermal: captureThermal, ultrasound: captureUltrasound, cardiac: captureCardiac,
+  blood: captureBlood, gait: captureGait, structural: captureStructural
+};
+
+function resultBulletsHTML(key, a) {
+  let items;
+  switch (key) {
+    case 'thermal':
+      items = [
+        `Inflammation score: <b>${a.inflammation_score}/100</b>`,
+        `Pain probability: <b>${a.pain_probability}%</b>`,
+        `Max asymmetry: <b>${a.thermal_asymmetry_map.max_delta_c}°C</b>`,
+        `Recovery trend: <b>${a.recovery_trend}</b>`,
+        `Calibration confidence: <b>${a.calibration_confidence_pct}%</b>`
+      ];
+      break;
+    case 'ultrasound':
+      items = [
+        `Lesions detected: <b>${a.lesion_measurements.length}</b>`,
+        `Tumour probability: <b>${a.tumour_probability_score}%</b>`,
+        `Fluid detection: <b>${a.fluid_detection ? 'Yes' : 'No'}</b>`
+      ];
+      break;
+    case 'cardiac':
+      items = [
+        `Rhythm: <b>${a.rhythm_classification}</b>`,
+        `Heart rate: <b>${a.heart_rate_bpm} bpm</b>`,
+        `Murmur grade: <b>${a.murmur_grade}</b>`,
+        `SpO2: <b>${a.spo2_pct}%</b>`,
+        `Blood pressure: <b>${a.blood_pressure.systolic_mmhg}/${a.blood_pressure.diastolic_mmhg} mmHg</b>`,
+        `Cardiac risk: <b>${a.cardiac_risk_score}/100</b>`
+      ];
+      break;
+    case 'blood':
+      items = [
+        `Analytes measured: <b>${a.summary.total}</b>`,
+        `Abnormal flags: <b>${a.summary.abnormal}</b>`,
+        `Metabolic age: <b>${a.metabolic_age_years} yr</b>`
+      ];
+      break;
+    case 'gait':
+      items = [
+        `Lameness grade: <b>${a.lameness_grade}/5</b>`,
+        `Gait symmetry: <b>${a.gait_symmetry_pct}%</b>`,
+        `Mobility score: <b>${a.mobility_score}/100</b>`
+      ];
+      break;
+    case 'structural':
+      items = [
+        `Body condition score: <b>${a.body_condition_score}/9</b>`,
+        `Muscle symmetry: <b>${a.muscle_symmetry_pct}%</b>`,
+        `Surface lesions: <b>${a.lesion_measurements.length}</b>`
+      ];
+      break;
+  }
+  return `<ul class="result-bullets">${items.map(i => `<li>${i}</li>`).join('')}</ul>`;
+}
+
+/* ── Raw sensor output — the exact reading each instrument produced, not just
+   the AI-derived summary above. Same driver contract documented at the top
+   of each js/drivers/*.js file. ── */
+function rawRow(label, value) {
+  return `<div class="raw-row"><span class="raw-label">${label}</span><span class="raw-value">${value}</span></div>`;
+}
+
+function rawSensorHTML(key, raw) {
+  if (key === 'blood') {
+    const analytes = [...raw.chem.analytes, ...raw.cbc.analytes];
+    const rows = analytes.map(a => `
+      <tr class="flag-${a.flag}">
+        <td>${a.name}</td>
+        <td>${a.value} <span class="unit">${a.unit}</span></td>
+        <td>${a.reference_range[0]}–${a.reference_range[1]}</td>
+        <td><span class="flag-pill flag-${a.flag}">${a.flag}</span></td>
+      </tr>`).join('');
+    return `
+      <details class="dock-raw">
+        <summary>Raw output — ${analytes.length} analytes</summary>
+        <div class="analyte-table-wrap">
+          <table class="analyte-table">
+            <thead><tr><th>Analyte</th><th>Value</th><th>Reference</th><th>Flag</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      </details>`;
+  }
+
+  let rows;
+  switch (key) {
+    case 'thermal':
+      rows = [
+        rawRow('Left Forelimb', `${raw.leftFore.temperature}°C`),
+        rawRow('Right Forelimb', `${raw.rightFore.temperature}°C`),
+        rawRow('Left Hindlimb', `${raw.leftHind.temperature}°C`),
+        rawRow('Right Hindlimb', `${raw.rightHind.temperature}°C`),
+        rawRow('Trunk ROI', `${raw.trunk.min}–${raw.trunk.max}°C (avg ${raw.trunk.avg}°C)`),
+        rawRow('Alarms', raw.alarms.alarms.map(al => `${al.name}: ${al.state}`).join(' · ')),
+        rawRow('Ambient temp', `${raw.environment.ambient_temp_c}°C`),
+        rawRow('Relative humidity', `${raw.environment.relative_humidity_pct}%`),
+        rawRow('Reflected temp / emissivity', `${raw.environment.reflected_temp_c}°C / ${raw.environment.emissivity}`),
+        rawRow('Measurement distance', `${raw.environment.distance_m} m`)
+      ];
+      break;
+    case 'ultrasound':
+      rows = [
+        rawRow('Scan lines', raw.iq.lines),
+        rawRow('Samples / line', raw.iq.samples_per_line),
+        rawRow('Raw data size', fmtBytes(raw.iq.data_size_bytes)),
+        rawRow('Lateral spacing', `${raw.iq.lateral_spacing_mm} mm`),
+        rawRow('Axial spacing', `${raw.iq.axial_spacing_mm} mm`),
+        rawRow('Center frequency', `${raw.iq.center_frequency_mhz} MHz`),
+        rawRow('Sample rate', `${raw.iq.sample_rate_mhz} MHz`),
+        rawRow('Depth range', `0–${raw.iq.depth_end_mm} mm`)
+      ];
+      break;
+    case 'cardiac':
+      rows = [
+        rawRow('Heart rate', `${raw.ecg.measurements.heart_rate_bpm} bpm`),
+        rawRow('PR interval', `${raw.ecg.measurements.pr_interval_ms} ms`),
+        rawRow('QRS duration', `${raw.ecg.measurements.qrs_duration_ms} ms`),
+        rawRow('QT / QTc interval', `${raw.ecg.measurements.qt_interval_ms} / ${raw.ecg.measurements.qtc_interval_ms} ms`),
+        rawRow('ST deviation', `${raw.ecg.measurements.st_deviation_mv} mV`),
+        rawRow('P axis / QRS axis', `${raw.ecg.measurements.p_axis_deg}° / ${raw.ecg.measurements.qrs_axis_deg}°`),
+        rawRow('Leads captured', raw.ecg.leads_captured.join(', ')),
+        rawRow('Record', `${raw.ecg.duration_s}s @ ${raw.ecg.sample_rate_hz} Hz`),
+        rawRow('SpO2', `${raw.vitals.pulse_oximetry.spo2_pct}%`),
+        rawRow('Pulse rate (SpO2 probe)', `${raw.vitals.pulse_oximetry.pulse_rate_bpm} bpm`),
+        rawRow('Perfusion index', `${raw.vitals.pulse_oximetry.perfusion_index_pct}%`),
+        rawRow('NIBP (sys/dia/map)', `${raw.vitals.non_invasive_bp.systolic_mmhg}/${raw.vitals.non_invasive_bp.diastolic_mmhg} (${raw.vitals.non_invasive_bp.map_mmhg}) mmHg`),
+        rawRow('NIBP method', raw.vitals.non_invasive_bp.method)
+      ];
+      break;
+    case 'gait': {
+      const s0 = raw.sample_frames[0];
+      rows = [
+        rawRow('Frames captured', raw.frame_count),
+        rawRow('Sensel grid', '48 × 64 @ 100 Hz'),
+        rawRow('Sample peak force', s0 ? `${s0.peak_force_N} N` : '—'),
+        rawRow('Sample total force', s0 ? `${s0.total_force_N} N` : '—'),
+        rawRow('Sample contact area', s0 ? `${s0.contact_area_cm2} cm²` : '—'),
+        rawRow('Center of pressure', s0 ? `x:${s0.center_of_pressure.x_sensel} y:${s0.center_of_pressure.y_sensel}` : '—')
+      ];
+      break;
+    }
+    case 'structural':
+      rows = [
+        rawRow('Total points', raw.pointCloud.total_points.toLocaleString()),
+        rawRow('Valid points', raw.pointCloud.valid_points.toLocaleString()),
+        rawRow('Format', raw.pointCloud.format),
+        rawRow('Bounding box (mm)', `x ${raw.pointCloud.bounding_box.x.join('…')} · y ${raw.pointCloud.bounding_box.y.join('…')} · z ${raw.pointCloud.bounding_box.z.join('…')}`),
+        rawRow('File formats', raw.pointCloud.file_formats.join(', '))
+      ];
+      break;
+    default:
+      rows = [];
+  }
+  return `<details class="dock-raw"><summary>Raw output</summary><div class="raw-grid">${rows.join('')}</div></details>`;
+}
+
+/* ── Live sensor visuals — real canvas feed per instrument while it's active ──
+   Shared by both the Detect step (self-test/calibration preview while probing)
+   and the Exam step (live capture feed). `scope` ('detect'|'exam') keeps each
+   step's canvas element IDs distinct so they never collide while both maps
+   sit in the DOM at once. ── */
+const EXAM_VISUAL_MODULES = ['thermal', 'ultrasound', 'cardiac', 'structural', 'gait'];
+const DETECT_VISUAL_MODULES = ['patientStation', 'structural', 'thermal', 'ultrasound', 'cardiac', 'gait'];
+const SENSOR_LABELS = { thermal: 'THERMAL', ultrasound: 'US B-MODE', cardiac: 'ECG', gait: 'PRESSURE', patientStation: 'BCS CAM' };
+
+function sensorCanvasHTML(scope, key) {
+  if (key === 'structural') {
+    return `<div class="sensor-canvas-row">
+      <div class="sensor-canvas-wrap" id="viz-wrap-${scope}-structural-a"><span class="sensor-live-tag"><span class="rec-dot"></span>DEPTH</span><canvas id="viz-${scope}-structural-a"></canvas></div>
+      <div class="sensor-canvas-wrap" id="viz-wrap-${scope}-structural-b"><span class="sensor-live-tag"><span class="rec-dot"></span>PT CLOUD</span><canvas id="viz-${scope}-structural-b"></canvas></div>
+    </div>`;
+  }
+  return `<div class="sensor-canvas-wrap" id="viz-wrap-${scope}-${key}"><span class="sensor-live-tag"><span class="rec-dot"></span>${SENSOR_LABELS[key]}</span><canvas id="viz-${scope}-${key}"></canvas></div>`;
+}
+
+function freezeSensorCanvas(scope, key) {
+  const ids = key === 'structural' ? [`viz-wrap-${scope}-structural-a`, `viz-wrap-${scope}-structural-b`] : [`viz-wrap-${scope}-${key}`];
+  ids.forEach(id => document.getElementById(id)?.classList.add('frozen'));
+}
+
+function startSensorAnim(scope, key) {
+  let frame = 0, phase = 0, intervalId;
+  if (key === 'thermal') {
+    const c = document.getElementById(`viz-${scope}-thermal`);
+    intervalId = setInterval(() => drawThermalFrame(c, Date.now()), 90);
+  } else if (key === 'ultrasound') {
+    const c = document.getElementById(`viz-${scope}-ultrasound`);
+    intervalId = setInterval(() => drawUltrasoundFrame(c, 8), 90);
+  } else if (key === 'cardiac') {
+    const c = document.getElementById(`viz-${scope}-cardiac`);
+    intervalId = setInterval(() => { frame++; drawECGTrace(c, frame, 82); }, 40);
+  } else if (key === 'structural') {
+    const ca = document.getElementById(`viz-${scope}-structural-a`);
+    const cb = document.getElementById(`viz-${scope}-structural-b`);
+    intervalId = setInterval(() => { drawDepthFrame(ca); drawPointCloud(cb); }, 110);
+  } else if (key === 'patientStation') {
+    const c = document.getElementById(`viz-${scope}-patientStation`);
+    intervalId = setInterval(() => drawColorFrame(c), 130);
+  } else if (key === 'gait') {
+    // No live stream available during a hardware probe — animate a mat calibration sweep.
+    const c = document.getElementById(`viz-${scope}-gait`);
+    intervalId = setInterval(() => { phase += 0.08; drawPressureMap(c, 48, 64, phase); }, 60);
+  }
+  return () => { if (intervalId) clearInterval(intervalId); freezeSensorCanvas(scope, key); };
+}
+
+document.getElementById('btn-run-exam').addEventListener('click', async () => {
+  const btn = document.getElementById('btn-run-exam');
+  btn.disabled = true;
+  btn.textContent = 'Running…';
+
+  for (const m of MODULES) {
+    const hasVisual = EXAM_VISUAL_MODULES.includes(m.key);
+    examMap.setState(m.key, 'active', {
+      status: 'Starting…',
+      bodyHtml: hasVisual ? sensorCanvasHTML('exam', m.key) : '<span class="text-muted">Connecting…</span>'
+    });
+
+    const stopAnim = (hasVisual && m.key !== 'gait') ? startSensorAnim('exam', m.key) : null;
+
+    try {
+      const result = m.key === 'gait'
+        ? await captureGait(
+            stage => examMap.setStatus(m.key, stage),
+            frame => {
+              const c = document.getElementById('viz-exam-gait');
+              if (c) drawPressureMap(c, frame.rows, frame.cols, frame._simPhase || 0);
+            }
+          )
+        : await CAPTURE_FNS[m.key](stage => examMap.setStatus(m.key, stage));
+
+      state.moduleResults[m.key] = result;
+      if (stopAnim) stopAnim(); else if (hasVisual) freezeSensorCanvas('exam', m.key);
+
+      const bodyEl = examMap.container.querySelector(`#dock-${m.key}-body`);
+      if (bodyEl) {
+        // Visual modules keep their frozen sensor frame and get the results appended below it;
+        // non-visual modules (blood) have only the "Connecting…" placeholder, which must be replaced, not appended to.
+        const resultHtml = resultBulletsHTML(m.key, result.analysis) + rawSensorHTML(m.key, result.raw);
+        if (hasVisual) bodyEl.insertAdjacentHTML('beforeend', resultHtml);
+        else bodyEl.innerHTML = resultHtml;
+      }
+      examMap.setState(m.key, 'done', { status: '' });
+    } catch (err) {
+      if (stopAnim) stopAnim(); else if (hasVisual) freezeSensorCanvas('exam', m.key);
+      examMap.setState(m.key, 'fail', { status: err.message });
+    }
+  }
+
+  btn.disabled = false;
+  btn.textContent = '▶ Re-run Full Exam';
+  document.getElementById('btn-to-report').disabled = MODULES.some(m => !state.moduleResults[m.key]);
+});
+
+/* ── STEP 4 · Review & Submit ─────────────────────────────────────────────── */
+async function loadVetOptions() {
+  const sel = document.getElementById('assign-vet-select');
+  try {
+    const res = await fetch('/api/auth/users/vets', { credentials: 'same-origin' });
+    if (!res.ok) return;
+    const vets = await res.json();
+    const current = sel.value;
+    sel.innerHTML = '<option value="">No preference — any available vet</option>' +
+      vets.map(v => `<option value="${v.id}">${v.name}${v.specialty ? ' · ' + v.specialty : ''}</option>`).join('');
+    sel.value = vets.some(v => String(v.id) === current) ? current : '';
+  } catch {}
+}
+
+document.getElementById('btn-to-report').addEventListener('click', () => {
+  const analyses = Object.fromEntries(MODULES.map(m => [m.key, state.moduleResults[m.key].analysis]));
+  state.report = runFusion(state.patient, analyses);
+  state.submitted = false;
+  document.getElementById('submit-status').textContent = '';
+  const btn = document.getElementById('btn-submit-review');
+  btn.disabled = false;
+  btn.textContent = 'Submit for Vet Review';
+  renderReport(document.getElementById('report-content'), state.report, { fetchLiveNarrative: true });
+  loadVetOptions();
+  goToStep(3);
+});
+
+document.getElementById('btn-submit-review').addEventListener('click', async () => {
+  if (!state.report || !state.patient.petId) return;
+  const btn = document.getElementById('btn-submit-review');
+  const statusEl = document.getElementById('submit-status');
+  btn.disabled = true;
+  btn.textContent = 'Submitting…';
+
+  const aiCard = document.getElementById('ai-summary-card');
+  const aiNarrative = aiCard && aiCard.classList.contains('ai-live')
+    ? [...document.querySelectorAll('#ai-summary-body p')].map(p => p.textContent).join('\n')
+    : null;
+
+  const assignedVetId = document.getElementById('assign-vet-select').value;
+
+  try {
+    const res = await fetch('/api/exams', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+      body: JSON.stringify({
+        pet_id: state.patient.petId,
+        report: state.report,
+        ai_narrative: aiNarrative,
+        assigned_vet_user_id: assignedVetId ? Number(assignedVetId) : null
+      })
+    });
+    if (!res.ok) throw new Error((await res.json()).error || 'submit failed');
+    state.submitted = true;
+    statusEl.style.color = '#3fb950';
+    statusEl.textContent = '✓ Submitted — awaiting vet sign-off.';
+    btn.textContent = 'Submitted ✓';
+    loadMyExams();
+  } catch (e) {
+    statusEl.style.color = 'var(--red)';
+    statusEl.textContent = `Could not submit: ${e.message}`;
+    btn.disabled = false;
+    btn.textContent = 'Submit for Vet Review';
+  }
+});
+
+document.getElementById('btn-export').addEventListener('click', () => {
+  if (!state.report) return;
+  const blob = new Blob([JSON.stringify(state.report, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `vitarus-report-${(state.patient.name || 'patient').replace(/\s+/g, '_')}-${Date.now()}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+document.getElementById('btn-restart').addEventListener('click', () => {
+  state.patient = { name: '', species: 'Canine', breed: '', breedKey: '', sex: '', age_years: 5, ownerEmail: '', microchip: null, weight_kg: null, color: '', allergies: '', medicalNotes: '', bcsPhotoId: null, petId: null };
+  state.hwResults = [];
+  state.moduleResults = {};
+  state.report = null;
+  state.submitted = false;
+  document.getElementById('p-name').value = '';
+  document.getElementById('p-species').value = 'Canine';
+  populateBreedOptions();
+  document.getElementById('p-owner').value = '';
+  document.getElementById('p-age').value = 5;
+  document.getElementById('p-color').value = '';
+  document.getElementById('p-allergies').value = '';
+  document.getElementById('p-medical-notes').value = '';
+  document.getElementById('owner-pet-search-results').innerHTML = '';
+  ['microchip', 'weight', 'bcs'].forEach(k => {
+    document.getElementById('result-' + k).textContent = '';
+    document.getElementById('card-' + k).classList.remove('captured');
+  });
+  document.getElementById('btn-to-exam').disabled = true;
+  document.getElementById('btn-to-report').disabled = true;
+  document.getElementById('detect-map-container').innerHTML = '';
+  document.getElementById('exam-map-container').innerHTML = '';
+  document.getElementById('scan-console').innerHTML = '';
+  document.getElementById('report-content').innerHTML = '';
+  document.getElementById('submit-status').textContent = '';
+  document.getElementById('assign-vet-select').value = '';
+  detectMap = null;
+  examMap = null;
+  goToStep(0);
+});
+
+/* ── Init ─────────────────────────────────────────────────────────────────── */
+renderStepper();
+AuthGuard.requireRole('staff', 'admin', 'super_admin').then(user => {
+  if (!user) return;
+  currentUser = user;
+  AuthGuard.renderStrip(user, '#auth-strip-mount');
+  loadMyExams();
+});
+</script>
+
+</body>
+</html>

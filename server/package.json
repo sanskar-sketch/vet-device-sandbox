@@ -1,0 +1,27 @@
+{
+  "name": "vitarus-backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local simulated hardware bridges for Vitarus. Swap the internals of server/lib/*.js for real SDK/serial calls when hardware is available — the wire protocol the frontend expects stays the same.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "start:web": "node services/web.js",
+    "start:flir": "node services/flir-sim.js",
+    "start:orbbec": "node services/orbbec-bridge.js",
+    "start:clarius": "node services/clarius-bridge.js",
+    "start:vemo": "node services/vemo-bridge.js",
+    "start:tekscan": "node services/tekscan-bridge.js",
+    "start:vetscan": "node services/vetscan-bridge.js",
+    "start:patient": "node services/patient-bridge.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.1",
+    "pg": "^8.13.1",
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "express-session": "^1.18.0",
+    "ws": "^8.17.0"
+  }
+}

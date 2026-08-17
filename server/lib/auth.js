@@ -1,0 +1,281 @@
+/**
+ * server/lib/auth.js
+ *
+ * Login / register / session + profile management.
+ * Roles: owner | vet | staff | admin | super_admin
+ *
+ * Owners self-register; vet/staff/admin are seeded or created by admin/super_admin.
+ * super_admin can additionally manage admin accounts and update any user's role.
+ */
+const express = require('express');
+const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
+const { nowISO } = require('./utils');
+const { ah } = require('./async-handler');
+
+const hashToken = token => crypto.createHash('sha256').update(token).digest('hex');
+
+const CLINIC_ROLES = ['vet', 'staff', 'admin', 'super_admin'];
+
+function publicUser(u) {
+  return {
+    id:          u.id,
+    email:       u.email,
+    role:        u.role,
+    name:        u.name,
+    phone:       u.phone       || null,
+    specialty:   u.specialty   || null,
+    clinic_name: u.clinic_name || null,
+    address:     u.address     || null,
+    lab_id:      u.lab_id      || null,
+    created_at:  u.created_at,
+    updated_at:  u.updated_at  || null,
+  };
+}
+
+function isAdmin(user) {
+  return user && (user.role === 'admin' || user.role === 'super_admin');
+}
+
+function router(db) {
+  const r = express.Router();
+
+  // ── Register (owners only) ───────────────────────────────────────────────
+  r.post('/register', ah(async (req, res) => {
+    const { email, password, name } = req.body || {};
+    if (!email || !password || !name)
+      return res.status(400).json({ error: 'email, password, and name are required' });
+    if (password.length < 8)
+      return res.status(400).json({ error: 'password must be at least 8 characters' });
+
+    const existing = await db.prepare('SELECT id FROM users WHERE email = ?').get(email);
+    if (existing) return res.status(409).json({ error: 'an account with that email already exists' });
+
+    const password_hash = bcrypt.hashSync(password, 10);
+    const info = await db.prepare(
+      'INSERT INTO users (email, password_hash, role, name, created_at) VALUES (?, ?, ?, ?, ?)'
+    ).run(email, password_hash, 'owner', name, nowISO());
+
+    await db.prepare('UPDATE pets SET owner_user_id = ? WHERE owner_email = ? AND owner_user_id IS NULL')
+      .run(info.lastInsertRowid, email);
+
+    const user = await db.prepare('SELECT * FROM users WHERE id = ?').get(info.lastInsertRowid);
+    req.session.userId = user.id;
+    res.json(publicUser(user));
+  }));
+
+  // ── Login ────────────────────────────────────────────────────────────────
+  r.post('/login', ah(async (req, res) => {
+    const { email, password } = req.body || {};
+    if (!email || !password)
+      return res.status(400).json({ error: 'email and password are required' });
+
+    const user = await db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+    if (!user || !bcrypt.compareSync(password, user.password_hash))
+      return res.status(401).json({ error: 'invalid email or password' });
+
+    req.session.userId = user.id;
+    res.json(publicUser(user));
+  }));
+
+  // ── Forgot password ──────────────────────────────────────────────────────
+  // No email transport is configured in this sandbox, so instead of sending
+  // mail, the reset link is handed straight back to the caller for the UI to
+  // display. Real deployments would swap the response for an email send.
+  r.post('/forgot-password', ah(async (req, res) => {
+    const { email } = req.body || {};
+    if (!email) return res.status(400).json({ error: 'email is required' });
+
+    const user = await db.prepare('SELECT id FROM users WHERE email = ?').get(email);
+    if (!user) return res.status(404).json({ error: 'No account found with that email.' });
+
+    const token = crypto.randomBytes(32).toString('hex');
+    const expires = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    await db.prepare('UPDATE users SET reset_token_hash = ?, reset_token_expires = ? WHERE id = ?')
+      .run(hashToken(token), expires, user.id);
+
+    res.json({ ok: true, resetUrl: `/reset-password.html?token=${token}` });
+  }));
+
+  // ── Reset password ───────────────────────────────────────────────────────
+  r.post('/reset-password', ah(async (req, res) => {
+    const { token, password } = req.body || {};
+    if (!token || !password) return res.status(400).json({ error: 'token and password are required' });
+    if (password.length < 8) return res.status(400).json({ error: 'password must be at least 8 characters' });
+
+    const user = await db.prepare('SELECT * FROM users WHERE reset_token_hash = ?').get(hashToken(token));
+    if (!user || !user.reset_token_expires || new Date(user.reset_token_expires) < new Date())
+      return res.status(400).json({ error: 'This reset link is invalid or has expired.' });
+
+    const password_hash = bcrypt.hashSync(password, 10);
+    await db.prepare('UPDATE users SET password_hash = ?, reset_token_hash = NULL, reset_token_expires = NULL, updated_at = ? WHERE id = ?')
+      .run(password_hash, nowISO(), user.id);
+
+    res.json({ ok: true });
+  }));
+
+  // ── Logout ───────────────────────────────────────────────────────────────
+  r.post('/logout', (req, res) => {
+    req.session.destroy(() => res.json({ ok: true }));
+  });
+
+  // ── Me ───────────────────────────────────────────────────────────────────
+  r.get('/me', ah(async (req, res) => {
+    if (!req.session.userId) return res.status(401).json({ error: 'not signed in' });
+    const user = await db.prepare('SELECT * FROM users WHERE id = ?').get(req.session.userId);
+    if (!user) return res.status(401).json({ error: 'not signed in' });
+    res.json(publicUser(user));
+  }));
+
+  // ── Update own profile (any role) ────────────────────────────────────────
+  r.patch('/profile', requireAuth, ah(async (req, res) => {
+    const allowed = ['name', 'phone', 'specialty', 'clinic_name', 'address'];
+    const updates = {};
+    for (const key of allowed) {
+      if (req.body && key in req.body) updates[key] = req.body[key] || null;
+    }
+    if (!Object.keys(updates).length)
+      return res.status(400).json({ error: 'no updatable fields provided' });
+
+    updates.updated_at = nowISO();
+    const setClauses = Object.keys(updates).map(k => `${k} = ?`).join(', ');
+    const values = [...Object.values(updates), req.user.id];
+    await db.prepare(`UPDATE users SET ${setClauses} WHERE id = ?`).run(...values);
+
+    const user = await db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+    res.json(publicUser(user));
+  }));
+
+  // ── Create clinic account (admin / super_admin) ──────────────────────────
+  // Staff/vet/admin all belong to a lab. super_admin picks any lab for the
+  // new account; admin's new accounts are forced into their own lab.
+  r.post('/users', requireAuth, ah(async (req, res) => {
+    if (!isAdmin(req.user))
+      return res.status(403).json({ error: 'not permitted for this role' });
+
+    const { email, password, name, role } = req.body || {};
+    if (!email || !password || !name || !role)
+      return res.status(400).json({ error: 'email, password, name, and role are required' });
+
+    // admin can create vet/staff; super_admin can also create admin
+    const allowedRoles = req.user.role === 'super_admin'
+      ? ['vet', 'staff', 'admin']
+      : ['vet', 'staff'];
+    if (!allowedRoles.includes(role))
+      return res.status(400).json({ error: `role must be one of: ${allowedRoles.join(', ')}` });
+
+    if (password.length < 8)
+      return res.status(400).json({ error: 'password must be at least 8 characters' });
+
+    let lab_id;
+    if (req.user.role === 'super_admin') {
+      lab_id = req.body.lab_id != null ? Number(req.body.lab_id) : null;
+      if (lab_id != null && !(await db.prepare('SELECT id FROM labs WHERE id = ?').get(lab_id)))
+        return res.status(400).json({ error: 'lab_id does not reference an existing lab' });
+    } else {
+      lab_id = req.user.lab_id || null;
+    }
+
+    const existing = await db.prepare('SELECT id FROM users WHERE email = ?').get(email);
+    if (existing) return res.status(409).json({ error: 'an account with that email already exists' });
+
+    const password_hash = bcrypt.hashSync(password, 10);
+    const info = await db.prepare(
+      'INSERT INTO users (email, password_hash, role, name, lab_id, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run(email, password_hash, role, name, lab_id, nowISO());
+
+    const user = await db.prepare('SELECT * FROM users WHERE id = ?').get(info.lastInsertRowid);
+    res.json(publicUser(user));
+  }));
+
+  // ── List clinic accounts (admin / super_admin) ───────────────────────────
+  // super_admin sees everyone including owners; admin sees only their own lab's staff/vet/admin
+  r.get('/users', requireAuth, ah(async (req, res) => {
+    if (!isAdmin(req.user))
+      return res.status(403).json({ error: 'not permitted for this role' });
+
+    let rows;
+    if (req.user.role === 'super_admin') {
+      rows = await db.prepare(
+        'SELECT id, email, role, name, phone, specialty, clinic_name, address, lab_id, created_at, updated_at FROM users ORDER BY created_at DESC'
+      ).all();
+    } else {
+      rows = await db.prepare(
+        "SELECT id, email, role, name, phone, specialty, clinic_name, address, lab_id, created_at, updated_at FROM users WHERE role != 'owner' AND lab_id = ? ORDER BY created_at DESC"
+      ).all(req.user.lab_id || -1);
+    }
+    res.json(rows);
+  }));
+
+  // ── List vets (for staff to assign exams) ────────────────────────────────
+  // staff/admin only see vets in their own lab; super_admin sees all
+  // (optionally filtered with ?lab_id=) since they aren't tied to one lab.
+  r.get('/users/vets', requireAuth, requireRole('staff', 'admin', 'super_admin'), ah(async (req, res) => {
+    let vets;
+    if (req.user.role === 'super_admin') {
+      const labId = req.query.lab_id ? Number(req.query.lab_id) : null;
+      vets = labId
+        ? await db.prepare("SELECT id, name, email, specialty, lab_id FROM users WHERE role = 'vet' AND lab_id = ? ORDER BY name ASC").all(labId)
+        : await db.prepare("SELECT id, name, email, specialty, lab_id FROM users WHERE role = 'vet' ORDER BY name ASC").all();
+    } else {
+      vets = await db.prepare(
+        "SELECT id, name, email, specialty, lab_id FROM users WHERE role = 'vet' AND lab_id = ? ORDER BY name ASC"
+      ).all(req.user.lab_id || -1);
+    }
+    res.json(vets);
+  }));
+
+  // ── Update any user's role and/or lab assignment (super_admin only) ──────
+  r.patch('/users/:id/role', requireAuth, requireRole('super_admin'), ah(async (req, res) => {
+    const { role, lab_id } = req.body || {};
+    const validRoles = ['owner', 'vet', 'staff', 'admin', 'super_admin'];
+    if (role && !validRoles.includes(role))
+      return res.status(400).json({ error: `role must be one of: ${validRoles.join(', ')}` });
+    if (!role && lab_id === undefined)
+      return res.status(400).json({ error: 'role and/or lab_id must be provided' });
+
+    const target = await db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
+    if (!target) return res.status(404).json({ error: 'user not found' });
+
+    let newLabId = target.lab_id;
+    if (lab_id !== undefined) {
+      newLabId = lab_id === null ? null : Number(lab_id);
+      if (newLabId != null && !(await db.prepare('SELECT id FROM labs WHERE id = ?').get(newLabId)))
+        return res.status(400).json({ error: 'lab_id does not reference an existing lab' });
+    }
+
+    await db.prepare('UPDATE users SET role = ?, lab_id = ?, updated_at = ? WHERE id = ?')
+      .run(role || target.role, newLabId, nowISO(), target.id);
+
+    const updated = await db.prepare('SELECT * FROM users WHERE id = ?').get(target.id);
+    res.json(publicUser(updated));
+  }));
+
+  return r;
+}
+
+/** Attaches req.user when a session exists; does not itself require one. */
+function attachUser(db) {
+  return ah(async (req, res, next) => {
+    if (req.session && req.session.userId) {
+      req.user = (await db.prepare('SELECT * FROM users WHERE id = ?').get(req.session.userId)) || null;
+    }
+    next();
+  });
+}
+
+function requireAuth(req, res, next) {
+  if (!req.user) return res.status(401).json({ error: 'sign in required' });
+  next();
+}
+
+function requireRole(...roles) {
+  return (req, res, next) => {
+    if (!req.user) return res.status(401).json({ error: 'sign in required' });
+    if (!roles.includes(req.user.role))
+      return res.status(403).json({ error: 'not permitted for this role' });
+    next();
+  };
+}
+
+module.exports = { router, attachUser, requireAuth, requireRole, publicUser, isAdmin };
