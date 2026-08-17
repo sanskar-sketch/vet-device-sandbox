@@ -48,6 +48,18 @@ async function main() {
     saveUninitialized: false,
     cookie: { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production' }
   }));
+  // Liveness/readiness probe for the hosting platform's load balancer —
+  // confirms the process is up AND the database connection actually works,
+  // not just that Express is listening.
+  app.get('/health', async (req, res) => {
+    try {
+      await db.prepare('SELECT 1').get();
+      res.json({ status: 'ok' });
+    } catch (err) {
+      res.status(503).json({ status: 'error', message: err.message });
+    }
+  });
+
   app.use(auth.attachUser(db));
   app.use('/api/auth', auth.router(db));
   app.use('/api', petsApi.router(db));
