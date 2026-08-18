@@ -23,7 +23,21 @@
  * <script>) and Node (`require()`), so the same ranges back both the
  * client-side exam pipeline (js/ai-analysis.js) and the server-side Claude
  * narrative prompt (server/lib/ai-narrative.js).
+ *
+ * Canine breed coverage (weight range, typical lifespan -> senior-age
+ * cutoff) comes from js/breed-directory.js, a 227-breed directory built
+ * from a user-supplied breed index — see that file's header for exactly
+ * what's sourced vs. derived. This file still owns every cardiac/blood/
+ * thermal/gait *clinical* range itself; the directory only supplies
+ * weight-range context and a breed-informed age band.
  */
+
+const _breedDirectory = typeof require === 'function' ? require('./breed-directory.js') : null;
+function resolveBreedEntry(breedKey) {
+  if (_breedDirectory) return _breedDirectory.getBreedDirectoryEntry(breedKey);
+  if (typeof getBreedDirectoryEntry === 'function') return getBreedDirectoryEntry(breedKey);
+  return null;
+}
 
 /* ── Canine weight class ─────────────────────────────────────────────────
    Resting heart rate scales inversely with body size — this is standard
@@ -38,10 +52,16 @@ function canineWeightClass(weightKg) {
   return 'giant';
 }
 
-function ageBand(ageYears) {
+/**
+ * @param {number} seniorAgeYears breed-specific senior-onset age from
+ *   js/breed-directory.js when known, otherwise the flat default (8) is
+ *   used — same as before that directory existed.
+ */
+function ageBand(ageYears, seniorAgeYears) {
   const a = ageYears == null ? 5 : ageYears;
+  const seniorCutoff = seniorAgeYears == null ? 8 : seniorAgeYears;
   if (a < 1) return 'juvenile';
-  if (a >= 8) return 'senior';
+  if (a >= seniorCutoff) return 'senior';
   return 'adult';
 }
 
@@ -131,7 +151,9 @@ const BREED_OVERRIDES = {
  */
 function getReferenceRanges(species, breedKey, ageYears, weightKg) {
   const sp = SPECIES_DEFAULTS[species] || SPECIES_DEFAULTS.Canine;
-  const band = ageBand(ageYears);
+  const isCanine = species !== 'Feline';
+  const breedEntry = isCanine ? resolveBreedEntry(breedKey) : null;
+  const band = ageBand(ageYears, breedEntry ? breedEntry.senior_age_years : undefined);
   const adj = AGE_BAND_ADJUSTMENTS[band];
 
   let hrRange;
@@ -150,9 +172,18 @@ function getReferenceRanges(species, breedKey, ageYears, weightKg) {
 
   const breed = (breedKey && BREED_OVERRIDES[breedKey]) || {};
 
+  let weightStatus = null;
+  if (breedEntry && weightKg != null) {
+    weightStatus = weightKg < breedEntry.weight_min_kg ? 'below breed-typical range'
+      : weightKg > breedEntry.weight_max_kg ? 'above breed-typical range'
+      : 'within breed-typical range';
+  }
+
   return {
     species: species === 'Feline' ? 'Feline' : 'Canine',
     breed_key: breedKey || null,
+    breed_label: breedEntry ? breedEntry.label : null,
+    breed_group: breedEntry ? breedEntry.group : null,
     age_band: band,
     heart_rate_bpm: hrRange,
     qtc_ms_max: sp.qtc_ms_max,
@@ -161,11 +192,13 @@ function getReferenceRanges(species, breedKey, ageYears, weightKg) {
     core_temp_c: sp.core_temp_c,
     thermal_asymmetry_tolerance_c: sp.thermal_asymmetry_tolerance_c,
     gait_symmetry_normal_pct: sp.gait_symmetry_normal_pct,
+    expected_weight_range_kg: breedEntry ? [breedEntry.weight_min_kg, breedEntry.weight_max_kg] : null,
+    weight_status: weightStatus,
     blood,
     breed_risk_notes: breed.risk_notes || []
   };
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { getReferenceRanges, canineWeightClass, ageBand, SPECIES_DEFAULTS, BREED_OVERRIDES };
+  module.exports = { getReferenceRanges, canineWeightClass, ageBand, SPECIES_DEFAULTS, BREED_OVERRIDES, resolveBreedEntry };
 }

@@ -26,7 +26,10 @@ function buildPrompt(report) {
   // already-generic-flagged output.
   const ranges = getReferenceRanges(p.species, p.breedKey, p.age_years, p.weight_kg);
   const contextLines = [
-    `Normal ranges for this patient: heart rate ${ranges.heart_rate_bpm[0]}-${ranges.heart_rate_bpm[1]} bpm, QTc <${ranges.qtc_ms_max}ms, SpO2 ≥${ranges.spo2_pct_min}%, core temperature ${ranges.core_temp_c[0]}-${ranges.core_temp_c[1]}°C.`,
+    `Normal ranges for this patient: heart rate ${ranges.heart_rate_bpm[0]}-${ranges.heart_rate_bpm[1]} bpm, QTc <${ranges.qtc_ms_max}ms, SpO2 ≥${ranges.spo2_pct_min}%, core temperature ${ranges.core_temp_c[0]}-${ranges.core_temp_c[1]}°C. Age band: ${ranges.age_band}.`,
+    ranges.expected_weight_range_kg
+      ? `Typical adult weight for ${ranges.breed_label || 'this breed'} (${ranges.breed_group || 'n/a'} group): ${ranges.expected_weight_range_kg[0]}-${ranges.expected_weight_range_kg[1]} kg.${ranges.weight_status ? ` This patient is ${ranges.weight_status}.` : ''}`
+      : '',
     ranges.breed_risk_notes.length ? `Known breed predispositions to weigh: ${ranges.breed_risk_notes.join('; ')}.` : ''
   ].filter(Boolean).join('\n');
 
