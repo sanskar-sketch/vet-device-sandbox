@@ -70,7 +70,11 @@
           </div>
           <div class="form-group">
             <label>Breed</label>
-            <select id="p-breed"></select>
+            <div class="breed-picker">
+              <input type="text" id="p-breed-search" class="breed-picker-input" placeholder="Search 225+ breeds…" autocomplete="off">
+              <select id="p-breed" class="breed-picker-native"></select>
+              <div id="p-breed-suggestions" class="breed-picker-suggestions" hidden></div>
+            </div>
           </div>
           <div class="form-group">
             <label>Sex</label>
@@ -236,6 +240,24 @@
     background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius);
     padding: 24px; max-width: 760px; width: 100%;
   }
+
+  .breed-picker { position: relative; }
+  .breed-picker-native { display: none; }
+  .breed-picker-suggestions {
+    position: absolute; z-index: 40; top: calc(100% + 4px); left: 0; right: 0;
+    max-height: 260px; overflow-y: auto;
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm);
+    box-shadow: var(--shadow-md, 0 8px 20px rgba(0,0,0,.15));
+  }
+  .breed-picker-option {
+    padding: 8px 12px; font-size: 13px; cursor: pointer;
+  }
+  .breed-picker-option:hover, .breed-picker-option.active {
+    background: var(--surface-2); color: var(--accent);
+  }
+  .breed-picker-empty {
+    padding: 8px 12px; font-size: 12.5px; color: var(--text-muted);
+  }
 </style>
 
 <script src="../js/auth-guard.js?v=2"></script>
@@ -253,7 +275,7 @@
 <script src="../js/ai-analysis.js?v=7"></script>
 <script src="../js/fusion-engine.js?v=6"></script>
 <script src="../js/result-renderer.js?v=3"></script>
-<script src="../js/clinical-map.js?v=16"></script>
+<script src="../js/clinical-map.js?v=17"></script>
 <script src="../js/sensor-viz.js?v=4"></script>
 <script src="../js/report-view.js?v=2"></script>
 
@@ -518,6 +540,7 @@ function selectOwnerPet(pet) {
     const option = [...breedSelect.options].find(o => o.textContent === pet.breed);
     if (option) breedSelect.value = option.value;
   }
+  document.getElementById('p-breed-search').value = breedSelect.selectedOptions[0]?.text || '';
   updateBreedPreview();
 
   if (pet.sex) document.getElementById('p-sex').value = pet.sex;
@@ -558,6 +581,8 @@ function populateBreedOptions() {
   const select = document.getElementById('p-breed');
   const list = BREED_LIST[species] || BREED_LIST.Canine;
   select.innerHTML = list.map(b => `<option value="${b.key}">${b.label}</option>`).join('');
+  document.getElementById('p-breed-search').value = select.selectedOptions[0]?.text || '';
+  document.getElementById('p-breed-suggestions').hidden = true;
   updateBreedPreview();
 }
 function updateBreedPreview() {
@@ -570,6 +595,54 @@ function updateBreedPreview() {
 document.getElementById('p-species').addEventListener('change', populateBreedOptions);
 document.getElementById('p-breed').addEventListener('change', updateBreedPreview);
 populateBreedOptions();
+
+/* ── Breed search combobox ───────────────────────────────────────────────
+   #p-breed stays a real <select> (hidden) so every other call site that
+   reads/writes it — selectOwnerPet(), the submit handler, etc. — keeps
+   working unchanged. This just adds a searchable text input on top that
+   filters BREED_LIST and drives the same select programmatically. */
+function renderBreedSuggestions(query) {
+  const species = document.getElementById('p-species').value;
+  const list = BREED_LIST[species] || BREED_LIST.Canine;
+  const q = query.trim().toLowerCase();
+  const matches = q ? list.filter(b => b.label.toLowerCase().includes(q)) : list;
+  const box = document.getElementById('p-breed-suggestions');
+  if (!matches.length) {
+    box.innerHTML = '<div class="breed-picker-empty">No matching breed</div>';
+  } else {
+    box.innerHTML = matches.slice(0, 50).map(b =>
+      `<div class="breed-picker-option" data-key="${b.key}">${staffEscapeHtml(b.label)}</div>`
+    ).join('') + (matches.length > 50 ? `<div class="breed-picker-empty">${matches.length - 50} more — keep typing to narrow it down</div>` : '');
+  }
+  box.hidden = false;
+}
+function selectBreed(key) {
+  const select = document.getElementById('p-breed');
+  if (![...select.options].some(o => o.value === key)) return;
+  select.value = key;
+  select.dispatchEvent(new Event('change'));
+  document.getElementById('p-breed-search').value = select.selectedOptions[0]?.text || '';
+  document.getElementById('p-breed-suggestions').hidden = true;
+}
+const breedSearchInput = document.getElementById('p-breed-search');
+breedSearchInput.addEventListener('focus', () => renderBreedSuggestions(breedSearchInput.value));
+breedSearchInput.addEventListener('input', () => renderBreedSuggestions(breedSearchInput.value));
+breedSearchInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    const first = document.querySelector('#p-breed-suggestions .breed-picker-option');
+    if (first) selectBreed(first.getAttribute('data-key'));
+  } else if (e.key === 'Escape') {
+    document.getElementById('p-breed-suggestions').hidden = true;
+  }
+});
+document.getElementById('p-breed-suggestions').addEventListener('click', e => {
+  const opt = e.target.closest('.breed-picker-option');
+  if (opt) selectBreed(opt.getAttribute('data-key'));
+});
+document.addEventListener('click', e => {
+  if (!e.target.closest('.breed-picker')) document.getElementById('p-breed-suggestions').hidden = true;
+});
 
 document.getElementById('card-microchip').addEventListener('click', async () => {
   const card = document.getElementById('card-microchip');

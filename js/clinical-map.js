@@ -11,14 +11,36 @@
    from vitarus_animals/) — one canonical aspect ratio per species so a
    single anchor map works across every breed in that species. ────────────── */
 
+/* The 5 canine / 5 feline breeds below have real custom illustrations
+   (assets/breeds/*.webp) and their own risk-note research in
+   js/vet-knowledge-base.js's BREED_OVERRIDES — their keys predate
+   js/breed-directory.js and don't all match its slugs (e.g. this app uses
+   "german_shepherd", the directory's own slug is "german_shepherd_dog"),
+   so they're kept as their original keys/labels rather than replaced by
+   the directory's entry for the same breed. */
+const LEGACY_CANINE_BREEDS = [
+  { key: "labrador", label: "Labrador Retriever" },
+  { key: "golden_retriever", label: "Golden Retriever" },
+  { key: "german_shepherd", label: "German Shepherd" },
+  { key: "beagle", label: "Beagle" },
+  { key: "poodle", label: "Poodle" }
+];
+// Directory slugs already represented by a legacy entry above — excluded
+// from the generated list below so the same breed never appears twice.
+const LEGACY_CANINE_SLUGS = new Set([
+  "labrador_retriever", "golden_retriever", "german_shepherd_dog", "beagle",
+  "standard_poodle", "miniature_poodle", "toy_poodle"
+]);
+
+function buildCanineBreedList() {
+  const fromDirectory = (typeof BREED_DIRECTORY !== 'undefined' ? Object.values(BREED_DIRECTORY) : [])
+    .filter(b => !LEGACY_CANINE_SLUGS.has(b.slug))
+    .map(b => ({ key: b.slug, label: b.label }));
+  return [...LEGACY_CANINE_BREEDS, ...fromDirectory].sort((a, b) => a.label.localeCompare(b.label));
+}
+
 const BREED_LIST = {
-  Canine: [
-    { key: "labrador", label: "Labrador Retriever" },
-    { key: "golden_retriever", label: "Golden Retriever" },
-    { key: "german_shepherd", label: "German Shepherd" },
-    { key: "beagle", label: "Beagle" },
-    { key: "poodle", label: "Poodle" }
-  ],
+  Canine: buildCanineBreedList(),
   Feline: [
     { key: "siamese", label: "Siamese" },
     { key: "persian", label: "Persian" },
@@ -30,9 +52,19 @@ const BREED_LIST = {
 
 const SPECIES_ASPECT = { Canine: 1.3413, Feline: 1.6462 };
 
+// Only these keys have real custom artwork — everything else (the 220+
+// breeds added from js/breed-directory.js with no illustration of their
+// own) falls back to a fixed per-species default rather than "whichever
+// breed happens to be first in the list" (which used to silently change
+// meaning every time BREED_LIST was reordered).
+const BREED_CUSTOM_ART_KEYS = new Set([
+  "labrador", "golden_retriever", "german_shepherd", "beagle", "poodle",
+  "siamese", "persian", "maine_coon", "ragdoll", "british_shorthair"
+]);
+const BREED_FALLBACK_IMAGE_KEY = { Canine: "labrador", Feline: "siamese" };
+
 function breedImagePath(species, breedKey) {
-  const list = BREED_LIST[species] || BREED_LIST.Canine;
-  const key = list.some(b => b.key === breedKey) ? breedKey : list[0].key;
+  const key = BREED_CUSTOM_ART_KEYS.has(breedKey) ? breedKey : (BREED_FALLBACK_IMAGE_KEY[species] || BREED_FALLBACK_IMAGE_KEY.Canine);
   return `/assets/breeds/${key}.webp`;
 }
 
