@@ -120,6 +120,14 @@ function analyzeCardiac(raw, patientCtx = {}) {
   const [hrLo, hrHi] = ranges.heart_rate_bpm;
   const hypoxemic = spo2 < ranges.spo2_pct_min;
   const hypertensive = systolic > ranges.systolic_bp_mmhg_max;
+  // ACVIM 2018 consensus 4-tier BP staging (see BP_STAGES in
+  // vet-knowledge-base.js) — richer than the single hypertensive_flagged
+  // cutoff above, for the narrative to reason against.
+  const bpStages = ranges.bp_stages;
+  const bpStage = systolic <= bpStages.normotensive_max ? 'normotensive'
+    : systolic <= bpStages.prehypertensive_max ? 'prehypertensive'
+    : systolic <= bpStages.hypertensive_max ? 'hypertensive'
+    : 'severely_hypertensive';
 
   let riskScore = 8;
   if (hr > hrHi || hr < hrLo) riskScore += 25;
@@ -140,7 +148,7 @@ function analyzeCardiac(raw, patientCtx = {}) {
     qtc_interval_ms: qtc,
     spo2_pct: spo2,
     hypoxemia_flagged: hypoxemic,
-    blood_pressure: { systolic_mmhg: systolic, diastolic_mmhg: diastolic, map_mmhg: vitals.non_invasive_bp.map_mmhg },
+    blood_pressure: { systolic_mmhg: systolic, diastolic_mmhg: diastolic, map_mmhg: vitals.non_invasive_bp.map_mmhg, acvim_stage: bpStage },
     hypertension_flagged: hypertensive
   };
 }

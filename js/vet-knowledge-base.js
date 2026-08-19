@@ -75,32 +75,93 @@ const AGE_BAND_ADJUSTMENTS = {
 };
 
 /* ── Blood reference intervals ───────────────────────────────────────────
-   Canine table matches what js/drivers/vemo-tekscan-vetscan.js already
-   simulated (kept identical so existing sim output doesn't shift). Feline
-   table is a separate, standard published set — cats run meaningfully
-   different ranges for several analytes (higher creatinine tolerance,
-   higher glucose due to stress hyperglycemia, higher sodium, lower ALP). */
+   Revised Aug 2026 after an external accuracy review flagged that the
+   original table (inherited unchanged from js/drivers/vemo-tekscan-
+   vetscan.js's pre-existing simulation values) didn't match any cited
+   published source. Replaced with two real, current, checkable sources:
+
+   HEMATOLOGY (WBC/RBC/Hemoglobin/Hematocrit/Platelets/Neutrophils/
+   Lymphocytes/Monocytes) — IDEXX Reference Laboratories, "Updated
+   reference intervals for IDEXX Reference Laboratories hematology
+   results" diagnostic update, published July 2025 (healthy adult dogs
+   1-7yr / cats 1-10yr, CLSI-guideline study). This superseded IDEXX's
+   own prior intervals in July 2025 — these are the *new* numbers, not
+   the ones it replaced.
+
+   CHEMISTRY (Glucose/BUN/Creatinine/Calcium/Total Protein/Albumin/ALT/
+   ALP/Total Bilirubin/Sodium/Potassium/Chloride) — Merck Veterinary
+   Manual, "Serum Biochemical Analysis Reference Ranges" reference guide
+   (merckvetmanual.com). No equivalent 2025 IDEXX chemistry update exists
+   yet, so Merck is the citable source for this half of the panel; Merck
+   itself notes reference ranges vary by lab and its own published
+   interval should be treated as representative, not universal.
+
+   Hemoglobin/Hematocrit converted from IDEXX's SI units (g/L, L/L) to
+   the conventional units (g/dL, %) this file already uses elsewhere. */
 const CANINE_ADULT_BLOOD = {
-  WBC: [6.0, 17.0], RBC: [5.5, 8.5], Hemoglobin: [12, 18], Hematocrit: [37, 55],
-  Platelets: [180, 400], Neutrophils: [3, 11.5], Lymphocytes: [1, 4.8], Monocytes: [0.2, 1.5],
-  Glucose: [70, 138], BUN: [9, 29], Creatinine: [0.5, 1.6], Calcium: [9, 11.4],
-  "Total Protein": [5.4, 7.5], Albumin: [2.9, 4.2], ALT: [18, 86], ALP: [12, 122],
-  "Total Bilirubin": [0.1, 0.5], Sodium: [142, 152], Potassium: [3.8, 5.4], Chloride: [105, 115]
+  WBC: [5.8, 16.2], RBC: [5.84, 8.95], Hemoglobin: [14.6, 21.7], Hematocrit: [41, 60],
+  Platelets: [120, 412], Neutrophils: [3.0, 9.74], Lymphocytes: [0.98, 4.2], Monocytes: [0.15, 0.74],
+  Glucose: [76, 119], BUN: [8, 28], Creatinine: [0.5, 1.7], Calcium: [9.1, 11.7],
+  "Total Protein": [5.4, 7.5], Albumin: [2.3, 3.1], ALT: [10, 109], ALP: [1, 114],
+  "Total Bilirubin": [0, 0.3], Sodium: [142, 152], Potassium: [3.9, 5.1], Chloride: [110, 124]
 };
 
 const FELINE_ADULT_BLOOD = {
-  WBC: [5.5, 19.5], RBC: [5.0, 10.0], Hemoglobin: [8, 15], Hematocrit: [24, 45],
-  Platelets: [200, 500], Neutrophils: [2.5, 12.5], Lymphocytes: [1.5, 7.0], Monocytes: [0, 0.9],
-  Glucose: [64, 170], BUN: [16, 36], Creatinine: [0.7, 2.1], Calcium: [8, 10.5],
-  "Total Protein": [5.7, 8.2], Albumin: [2.3, 3.9], ALT: [25, 97], ALP: [12, 59],
-  "Total Bilirubin": [0.1, 0.4], Sodium: [149, 159], Potassium: [3.4, 5.6], Chloride: [112, 129]
+  WBC: [3.9, 19.0], RBC: [6.5, 11.53], Hemoglobin: [10.6, 16.7], Hematocrit: [31, 51],
+  Platelets: [100, 440], Neutrophils: [2.6, 15.2], Lymphocytes: [0.65, 6.86], Monocytes: [0.04, 0.47],
+  Glucose: [60, 120], BUN: [19, 34], Creatinine: [0.9, 2.2], Calcium: [8.7, 11.7],
+  "Total Protein": [6.0, 7.9], Albumin: [2.8, 3.9], ALT: [25, 97], ALP: [0, 45],
+  "Total Bilirubin": [0, 0.1], Sodium: [146, 156], Potassium: [3.7, 6.1], Chloride: [115, 130]
 };
 
-/* ── Species defaults ────────────────────────────────────────────────────
-   Feline resting HR (140–220 bpm) is materially different from canine — the
-   pre-existing single threshold (`hr > 160 || hr < 60`) applied the dog
-   range to cats too, which flagged nearly every normal cat as tachycardic
-   and every normal dog resting near 160bpm as fine regardless of size. */
+/* ── Non-lab thresholds: clinical screening heuristics, not reference
+   intervals ─────────────────────────────────────────────────────────────
+   Everything in SPECIES_DEFAULTS other than `blood` and `core_temp_c` is
+   NOT a published population reference interval the way the blood panel
+   above is — no single veterinary source publishes one universal number
+   for these across every dog/cat, because they depend on measurement
+   method, equipment, and (for HR/QTc especially) body size. Each is
+   documented below with what it actually is and where its direction
+   comes from, so it isn't mistaken for lab-grade precision:
+
+   - heart_rate_bpm(_by_weight_class): a clinical screening heuristic.
+     Standard veterinary teaching is that resting HR scales inversely
+     with body size (toy breeds run faster than giant breeds) — that
+     *direction* is well established (Tilley's ECG texts, Cornell/VCA
+     client education); the exact cutoffs here are this app's own
+     working thresholds, not a single cited study's numbers. Merck's
+     quick-reference table gives one coarse, non-size-stratified adult
+     figure (80-120 bpm) as a sanity anchor, not a replacement for the
+     size-stratified approach.
+   - qtc_ms_max: a clinical screening threshold in the range commonly
+     taught for canine ECG (King/Bartick/Tilley-era teaching, ~250-260ms),
+     not a single-study cutoff — QTc depends materially on the correction
+     formula and lead used, which this simulated pipeline doesn't vary.
+   - spo2_pct_min: the standard clinical monitoring alert threshold used
+     in veterinary anesthesia/critical care teaching (SpO2 <95% = mild
+     hypoxemia) — a monitoring cutoff, not a resting-healthy-population
+     reference interval.
+   - systolic_bp_mmhg_max: the ACVIM consensus "hypertensive" stage
+     threshold (Acierno et al., J Vet Intern Med 2018;32(6):1803-1822) —
+     see BP_STAGES below for the full 4-tier breakdown that source
+     actually defines (normotensive/prehypertensive/hypertensive/severely
+     hypertensive), which is more clinically correct than a single cutoff.
+   - thermal_asymmetry_tolerance_c / gait_symmetry_normal_pct: internal
+     working thresholds for this app's own thermal-imaging and gait-
+     analysis modules. No published clinical reference interval for
+     either exists — thermal asymmetry tolerance depends on camera,
+     emissivity, distance, and protocol; published gait-symmetry studies
+     explicitly note there's no established universal normal-asymmetry
+     percentage (e.g. pressure-mat studies report it depends on the
+     measurement system, gait, and body size). Treat both as this
+     platform's own screening defaults pending a validated in-house
+     thermal/gait protocol, not textbook fact. */
+const BP_STAGES = {
+  normotensive_max: 139, prehypertensive_max: 159, hypertensive_max: 179,
+  // >=180 is "severely hypertensive" per the same source.
+  source: "ACVIM consensus statement, Acierno et al., J Vet Intern Med 2018;32(6):1803-1822"
+};
+
 const SPECIES_DEFAULTS = {
   Canine: {
     heart_rate_bpm_by_weight_class: {
@@ -109,7 +170,8 @@ const SPECIES_DEFAULTS = {
     qtc_ms_max: 260,
     spo2_pct_min: 95,
     systolic_bp_mmhg_max: 160,
-    core_temp_c: [38.3, 39.2],
+    // Merck Veterinary Manual normal physiologic values: dog 37.5-39.2°C.
+    core_temp_c: [37.5, 39.2],
     thermal_asymmetry_tolerance_c: 1.0,
     gait_symmetry_normal_pct: 92,
     blood: CANINE_ADULT_BLOOD
@@ -119,11 +181,27 @@ const SPECIES_DEFAULTS = {
     qtc_ms_max: 230,
     spo2_pct_min: 95,
     systolic_bp_mmhg_max: 160,
-    core_temp_c: [38.1, 39.2],
+    // Merck Veterinary Manual normal physiologic values: cat 37.8-39.5°C.
+    core_temp_c: [37.8, 39.5],
     thermal_asymmetry_tolerance_c: 1.0,
     gait_symmetry_normal_pct: 92,
     blood: FELINE_ADULT_BLOOD
   }
+};
+
+/* Per-field evidence classification, exposed for anything (e.g. the Excel
+   export script) that wants to show provenance/confidence next to a value
+   instead of presenting every number as equally authoritative. */
+const FIELD_EVIDENCE = {
+  blood_hematology: { level: 'A', kind: 'published_reference_interval', source: 'IDEXX Reference Laboratories, hematology reference interval update, Jul 2025' },
+  blood_chemistry: { level: 'B', kind: 'published_reference_interval', source: 'Merck Veterinary Manual, Serum Biochemical Analysis Reference Ranges (lab-dependent per Merck’s own caveat)' },
+  core_temp_c: { level: 'B', kind: 'published_reference_interval', source: 'Merck Veterinary Manual, normal physiologic values' },
+  heart_rate: { level: 'C', kind: 'screening_heuristic', source: 'Size-scaling direction is standard veterinary teaching; exact cutoffs are this app’s own working thresholds' },
+  qtc_ms_max: { level: 'C', kind: 'screening_heuristic', source: 'Commonly-taught canine ECG screening range; not a single cited study, method/lead-dependent' },
+  spo2_pct_min: { level: 'C', kind: 'screening_heuristic', source: 'Standard veterinary anesthesia/critical-care monitoring alert threshold' },
+  systolic_bp_mmhg_max: { level: 'A', kind: 'published_staging_threshold', source: 'ACVIM consensus statement 2018 (Acierno et al.) — see BP_STAGES for full tiering' },
+  thermal_asymmetry_tolerance_c: { level: 'D', kind: 'unvalidated_internal_heuristic', source: 'No published reference interval exists; platform-internal working default pending in-house protocol validation' },
+  gait_symmetry_normal_pct: { level: 'D', kind: 'unvalidated_internal_heuristic', source: 'No established universal reference interval in the gait-analysis literature; platform-internal working default' }
 };
 
 /* ── Breed overrides ──────────────────────────────────────────────────────
@@ -319,7 +397,8 @@ function getReferenceRanges(species, breedKey, ageYears, weightKg) {
     expected_weight_range_kg: breedEntry ? [breedEntry.weight_min_kg, breedEntry.weight_max_kg] : null,
     weight_status: weightStatus,
     blood,
-    breed_risk_notes: riskNotes
+    breed_risk_notes: riskNotes,
+    bp_stages: BP_STAGES
   };
 }
 
@@ -327,6 +406,7 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     getReferenceRanges, canineWeightClass, ageBand, SPECIES_DEFAULTS, BREED_OVERRIDES, resolveBreedEntry,
     SIGHTHOUND_BREED_KEYS, BRACHYCEPHALIC_BREED_KEYS, CHONDRODYSTROPHIC_BREED_KEYS,
-    GDV_RISK_BREED_KEYS, DCM_RISK_BREED_KEYS, MDR1_RISK_BREED_KEYS, GROUP_RISK_NOTES, GREYHOUND_BLOOD
+    GDV_RISK_BREED_KEYS, DCM_RISK_BREED_KEYS, MDR1_RISK_BREED_KEYS, GROUP_RISK_NOTES, GREYHOUND_BLOOD,
+    BP_STAGES, FIELD_EVIDENCE
   };
 }
