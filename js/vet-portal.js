@@ -2,11 +2,21 @@
 /* SYSTEM_LABELS, riskClass(), scoreColor() come from report-view.js, loaded first. */
 
 /* ── Shared helpers ────────────────────────────────────────────────────── */
+// Only these breed keys have a real illustration under /assets/breeds/ — the
+// 220 breeds added later from js/breed-directory.js don't, so anything else
+// falls back to the paw icon instead of a broken <img>.
+const BREED_CUSTOM_ART_KEYS = new Set([
+  "labrador", "golden_retriever", "german_shepherd", "beagle", "poodle",
+  "siamese", "persian", "maine_coon", "ragdoll", "british_shorthair"
+]);
 function petThumb(pet, size) {
   size = size || 44;
-  return pet && pet.breed_key
+  return pet && pet.breed_key && BREED_CUSTOM_ART_KEYS.has(pet.breed_key)
     ? `<img class="phc-thumb" style="width:${size}px;height:${size}px;" src="/assets/breeds/${pet.breed_key}.webp" alt="${pet.name}">`
     : `<div class="phc-fallback" style="width:${size}px;height:${size}px;">🐾</div>`;
+}
+function petBreedMeta(pet) {
+  return `${pet.breed ? ' · ' + pet.breed : ''}${pet.breed_group ? ' · ' + pet.breed_group : ''}${pet.breed_size ? ' · ' + pet.breed_size : ''}`;
 }
 
 /* ── State ─────────────────────────────────────────────────────────────── */
@@ -183,7 +193,7 @@ async function loadHistory() {
           ${petThumb(pet)}
           <div style="flex:1;">
             <div class="phc-name">${pet.name}</div>
-            <div class="phc-meta">${pet.species}${pet.breed ? ' · ' + pet.breed : ''}
+            <div class="phc-meta">${pet.species}${petBreedMeta(pet)}
               ${pet.age_years != null ? ' · ' + pet.age_years + ' yrs' : ''}
               ${pet.weight_kg  != null ? ' · ' + pet.weight_kg  + ' kg' : ''}
             </div>
@@ -215,7 +225,7 @@ function openPetHistory(pet) {
       ${petThumb(pet)}
       <div>
         <div class="dpb-name">${pet.name}</div>
-        <div class="dpb-meta">${pet.species}${pet.breed ? ' · ' + pet.breed : ''}
+        <div class="dpb-meta">${pet.species}${petBreedMeta(pet)}
           ${pet.age_years != null ? ' · ' + pet.age_years + ' yrs' : ''}
           ${pet.weight_kg  != null ? ' · ' + pet.weight_kg  + ' kg' : ''}
         </div>

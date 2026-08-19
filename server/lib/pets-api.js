@@ -12,6 +12,7 @@ const crypto = require('crypto');
 const { nowISO } = require('./utils');
 const { requireAuth, requireRole } = require('./auth');
 const { ah } = require('./async-handler');
+const { getBreedDirectoryEntry } = require('../../js/breed-directory.js');
 
 function router(db) {
   const r = express.Router();
@@ -51,10 +52,18 @@ function router(db) {
       // login as a pet owner account.
     }
 
+    // Group ("Gundog", "Pastoral", ...) and size class ("Large", "Toy", ...)
+    // come from js/breed-directory.js (canine-only — see that file's
+    // header). Stored on the pet at creation time so every page that
+    // displays a pet can show them without re-resolving the breed key.
+    const directoryEntry = species !== 'Feline' ? getBreedDirectoryEntry(breedKey) : null;
+    const breedGroup = directoryEntry ? directoryEntry.group : null;
+    const breedSize = directoryEntry ? directoryEntry.size : null;
+
     const info = await db.prepare(`
-      INSERT INTO pets (owner_user_id, owner_email, name, species, breed, breed_key, sex, age_years, weight_kg, microchip, color, allergies, medical_notes, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(ownerUserId, ownerEmail, name, species, breed || null, breedKey || null, sex || null,
+      INSERT INTO pets (owner_user_id, owner_email, name, species, breed, breed_key, breed_group, breed_size, sex, age_years, weight_kg, microchip, color, allergies, medical_notes, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(ownerUserId, ownerEmail, name, species, breed || null, breedKey || null, breedGroup, breedSize, sex || null,
       age_years ?? null, weight_kg ?? null, microchip || null, color || null, allergies || null, medical_notes || null, nowISO());
 
     res.json(await db.prepare('SELECT * FROM pets WHERE id = ?').get(info.lastInsertRowid));

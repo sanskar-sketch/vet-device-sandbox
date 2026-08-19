@@ -484,7 +484,7 @@ async function openPatientModal(petId) {
 
     el.innerHTML = `
       <div class="panel-title" style="font-size:18px;">${pet.name}</div>
-      <div class="panel-sub">${pet.species}${pet.breed ? ' · ' + pet.breed : ''}${pet.sex ? ' · ' + pet.sex : ''}${pet.age_years != null ? ' · ' + pet.age_years + ' yrs' : ''}${pet.weight_kg != null ? ' · ' + pet.weight_kg + ' kg' : ''}${pet.microchip ? ' · chip ' + pet.microchip : ''}</div>
+      <div class="panel-sub">${pet.species}${pet.breed ? ' · ' + pet.breed : ''}${pet.breed_group ? ' · ' + pet.breed_group : ''}${pet.breed_size ? ' · ' + pet.breed_size : ''}${pet.sex ? ' · ' + pet.sex : ''}${pet.age_years != null ? ' · ' + pet.age_years + ' yrs' : ''}${pet.weight_kg != null ? ' · ' + pet.weight_kg + ' kg' : ''}${pet.microchip ? ' · chip ' + pet.microchip : ''}</div>
       <div class="owner-info-card">${ownerBlock}</div>
       <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--text-dim);margin-bottom:10px;">
         Report History (${exams.length})

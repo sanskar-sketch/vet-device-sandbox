@@ -148,6 +148,8 @@ async function createSchema() {
     ALTER TABLE pets  ADD COLUMN IF NOT EXISTS color         TEXT;
     ALTER TABLE pets  ADD COLUMN IF NOT EXISTS allergies     TEXT;
     ALTER TABLE pets  ADD COLUMN IF NOT EXISTS medical_notes TEXT;
+    ALTER TABLE pets  ADD COLUMN IF NOT EXISTS breed_group   TEXT;
+    ALTER TABLE pets  ADD COLUMN IF NOT EXISTS breed_size    TEXT;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_hash    TEXT;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expires TEXT;
   `);
