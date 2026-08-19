@@ -7,6 +7,8 @@
  * across all of them.
  */
 const express = require('express');
+const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const { nowISO } = require('./utils');
 const { requireAuth, requireRole } = require('./auth');
 const { ah } = require('./async-handler');
@@ -15,15 +17,39 @@ function router(db) {
   const r = express.Router();
 
   // Staff creates a pet at intake; owner can also add their own pet directly.
+  // Owner email is mandatory when staff/admin creates a pet — the signed
+  // report has nowhere to land otherwise. If no owner account exists yet
+  // for that email, one is created here rather than waiting for the owner
+  // to self-register, so the pet/report show up in their portal as soon as
+  // a vet signs off. They set their own password later via "Forgot
+  // password" on the sign-in page.
   r.post('/pets', requireAuth, requireRole('staff', 'admin', 'super_admin', 'owner'), ah(async (req, res) => {
     const { name, species, breed, breedKey, sex, age_years, weight_kg, microchip, color, allergies, medical_notes, owner_email } = req.body || {};
     if (!name || !species) return res.status(400).json({ error: 'name and species are required' });
 
     const isOwner = req.user.role === 'owner';
-    const ownerEmail = isOwner ? req.user.email : (owner_email || null);
-    const ownerUserId = isOwner
-      ? req.user.id
-      : (ownerEmail ? ((await db.prepare('SELECT id FROM users WHERE email = ? AND role = ?').get(ownerEmail, 'owner')) || {}).id || null : null);
+    if (!isOwner && !owner_email) return res.status(400).json({ error: 'owner_email is required' });
+
+    const ownerEmail = isOwner ? req.user.email : owner_email;
+    let ownerUserId = null;
+    if (isOwner) {
+      ownerUserId = req.user.id;
+    } else {
+      const existing = await db.prepare('SELECT id, role FROM users WHERE email = ?').get(ownerEmail);
+      if (existing && existing.role === 'owner') {
+        ownerUserId = existing.id;
+      } else if (!existing) {
+        const placeholderName = ownerEmail.split('@')[0];
+        const password_hash = bcrypt.hashSync(crypto.randomBytes(24).toString('hex'), 10);
+        const created = await db.prepare(
+          'INSERT INTO users (email, password_hash, role, name, created_at) VALUES (?, ?, ?, ?, ?)'
+        ).run(ownerEmail, password_hash, 'owner', placeholderName, nowISO());
+        ownerUserId = created.lastInsertRowid;
+      }
+      // else: email already belongs to a non-owner account (staff/vet/admin)
+      // — leave unlinked rather than risk misattributing someone's clinic
+      // login as a pet owner account.
+    }
 
     const info = await db.prepare(`
       INSERT INTO pets (owner_user_id, owner_email, name, species, breed, breed_key, sex, age_years, weight_kg, microchip, color, allergies, medical_notes, created_at)

@@ -47,12 +47,12 @@
         <div class="intake-card-title">Patient Details</div>
 
         <div class="form-group owner-lookup-group">
-          <label>Owner email</label>
+          <label>Owner email <span style="color:var(--red);">*</span></label>
           <div class="lab-owner-search">
-            <input type="email" id="p-owner" placeholder="e.g. owner@example.com">
+            <input type="email" id="p-owner" placeholder="e.g. owner@example.com" required>
             <button class="btn btn-secondary" id="btn-owner-pet-search" type="button">Find pets</button>
           </div>
-          <p class="text-muted" style="font-size:11.5px;margin-top:6px;">Find an existing owner to select one of their pets and auto-fill this form — or just continue below for a new patient.</p>
+          <p class="text-muted" style="font-size:11.5px;margin-top:6px;">Required — this is where the signed report lands. Find an existing owner to select one of their pets and auto-fill this form, or enter a new owner's email below for a new patient (an account is created for them automatically if one doesn't exist yet).</p>
           <div id="owner-pet-search-results" class="owner-pet-results"></div>
         </div>
 
@@ -699,6 +699,11 @@ document.getElementById('btn-to-detect').addEventListener('click', async () => {
   const err = document.getElementById('intake-error');
   if (!state.patient.name || state.patient.weight_kg == null) {
     err.textContent = 'Enter a patient name and capture weight before continuing.';
+    return;
+  }
+  if (!state.patient.ownerEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(state.patient.ownerEmail)) {
+    err.textContent = 'Enter a valid owner email before continuing — this is required so the signed report reaches the right owner portal.';
+    document.getElementById('p-owner').focus();
     return;
   }
   err.textContent = '';
