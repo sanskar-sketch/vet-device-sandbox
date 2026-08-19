@@ -129,7 +129,10 @@ const SPECIES_DEFAULTS = {
 /* ── Breed overrides ──────────────────────────────────────────────────────
    Deliberately qualitative (risk_notes only) rather than invented precise
    numeric breed deltas that can't be confidently cited — these feed the
-   Claude narrative as clinical context, not the fusion engine's scoring. */
+   Claude narrative as clinical context, not the fusion engine's scoring.
+   One exception: GREYHOUND_BLOOD below, which is a real published breed-
+   specific reference interval, not a qualitative note (see its own
+   citation). */
 const BREED_OVERRIDES = {
   // Canine — see BREED_LIST in js/clinical-map.js for the exact key list.
   labrador: { risk_notes: ["Predisposed to hip and elbow dysplasia", "Prone to obesity — weigh body condition score against this"] },
@@ -145,6 +148,93 @@ const BREED_OVERRIDES = {
   british_shorthair: { risk_notes: ["Elevated risk of hypertrophic cardiomyopathy (HCM) and polycystic kidney disease"] }
 };
 
+/* ── Category-level canine clusters ──────────────────────────────────────
+   Covering all 227 directory breeds individually with cited literature
+   isn't possible — most breeds simply have no breed-specific study. What
+   IS well-published is a handful of physiologically/clinically distinct
+   *clusters* that cut across many breeds at once. Applying documented
+   cluster-level findings to every breed_directory.js slug in that cluster
+   is the accurate way to extend real coverage across the full directory,
+   instead of inventing per-breed numbers for breeds nobody has studied.
+   Sources (Aug 2026 research pass):
+   - Sighthound hematology: IDEXX "Greyhounds: a breed apart" (Jun 2025,
+     greyhound-specific reference intervals below) + Campora et al. 2011
+     Vet Clin Pathol (Whippet/Lurcher transference) + Zaldívar-López et al.
+     2011 Vet Clin Pathol (cross-sighthound comparison).
+   - Brachycephalic airway/SpO2: Liu et al., "Evaluation of Pulse Oximetry
+     in Healthy Brachycephalic Dogs" (PubMed 30272480) — SpO2 statistically
+     lower but stays within the 95-100% reference range at rest.
+   - Chondrodystrophic IVDD: Bach/Batcher FGF4-retrogene literature (UC
+     Davis VGL CDDY/CDPA panel) + DachsLife 2015 (Packer et al., PMC5097381).
+   - GDV/bloat risk breeds: Cornell Riney Canine Health Center GDV summary;
+     Glickman et al. breed-risk literature it cites.
+   - DCM risk breeds: Cornell Riney Canine Health Center canine DCM summary.
+   - MDR1 (ABCB1-1Δ) multidrug sensitivity: Mealey lab / WSU VCPL breed
+     prevalence data as summarized by UC Davis VGL and VCA. */
+const SIGHTHOUND_BREED_KEYS = new Set([
+  'greyhound', 'whippet', 'saluki', 'afghan_hound', 'borzoi', 'irish_wolfhound',
+  'deerhound', 'ibizan_hound', 'pharaoh_hound', 'azawakh', 'sloughi', 'basenji',
+  'italian_greyhound', 'cirneco_dell_etna'
+]);
+const BRACHYCEPHALIC_BREED_KEYS = new Set([
+  'bulldog', 'french_bulldog', 'pug', 'boston_terrier', 'pekingese', 'shih_tzu',
+  'lhasa_apso', 'japanese_chin', 'king_charles_spaniel', 'cavalier_king_charles_spaniel',
+  'griffon_bruxellois', 'tibetan_spaniel'
+]);
+const CHONDRODYSTROPHIC_BREED_KEYS = new Set([
+  'long_haired_dachshund', 'miniature_long_haired_dachshund', 'miniature_smooth_haired_dachshund',
+  'miniature_wire_haired_dachshund', 'smooth_haired_dachshund', 'wire_haired_dachshund',
+  'basset_hound', 'basset_bleu_de_gascogne', 'basset_fauve_de_bretagne',
+  'grand_basset_griffon_vendeen', 'petit_basset_griffon_vendeen', 'pembroke_welsh_corgi',
+  'cardigan_welsh_corgi', 'pekingese', 'west_highland_white_terrier', 'scottish_terrier',
+  'french_bulldog', 'bichon_frise'
+]);
+const GDV_RISK_BREED_KEYS = new Set([
+  'great_dane', 'st_bernard', 'irish_wolfhound', 'weimaraner', 'irish_setter',
+  'irish_red_and_white_setter', 'gordon_setter', 'english_setter', 'standard_poodle',
+  'basset_hound', 'dobermann', 'old_english_sheepdog', 'german_shepherd_dog', 'bloodhound',
+  'mastiff', 'neapolitan_mastiff', 'bullmastiff', 'dogue_de_bordeaux', 'newfoundland',
+  'bernese_mountain_dog', 'great_swiss_mountain_dog', 'greenland_dog', 'akita',
+  'japanese_akita_inu', 'boxer', 'rottweiler', 'komondor', 'hungarian_kuvasz', 'leonberger',
+  'pyrenean_mastiff', 'pyrenean_mountain_dog', 'tibetan_mastiff', 'russian_black_terrier'
+]);
+const DCM_RISK_BREED_KEYS = new Set([
+  'dobermann', 'great_dane', 'boxer', 'irish_wolfhound', 'giant_schnauzer', 'schnauzer',
+  'newfoundland', 'portuguese_water_dog', 'cocker_spaniel', 'american_cocker_spaniel', 'st_bernard'
+]);
+const MDR1_RISK_BREED_KEYS = new Set([
+  'rough_collie', 'smooth_collie', 'whippet', 'australian_shepherd',
+  'miniature_american_shepherd', 'shetland_sheepdog', 'old_english_sheepdog', 'german_shepherd_dog'
+]);
+
+/* Soft, group-wide tendencies — always true-ish at the group level, so safe
+   to attach to every breed in the group even without individual-breed
+   literature. Deliberately generic; specific clusters/breeds above and in
+   BREED_OVERRIDES layer stronger, more precise notes on top. */
+const GROUP_RISK_NOTES = {
+  Toy: ["Small/toy conformation — watch for patellar luxation and dental crowding; juveniles under ~5 months or very small adults carry elevated hypoglycemia risk; resting heart rate normally runs faster than in larger breeds"],
+  Terrier: ["Terrier-type breed — elevated patellar luxation risk in several terrier breeds; generally robust cardiovascular profile relative to body size"],
+  Hound: ["Hound-group breed — scent hounds commonly show a food-driven weight-gain tendency; see sighthound-specific note below if this breed is a sighthound"],
+  Gundog: ["Gundog/sporting breed — larger gundog breeds carry elevated hip/elbow dysplasia risk; retrievers and spaniels carry elevated later-life cancer risk (lymphoma, hemangiosarcoma, mast cell tumors)"],
+  Pastoral: ["Pastoral/herding breed — elevated hip dysplasia risk in many lines; several herding breeds carry the MDR1 (ABCB1-1Δ) drug-sensitivity variant — see MDR1 note below if this breed is a documented carrier before dosing ivermectin-class or other MDR1-substrate drugs"],
+  Working: ["Working-group breed — often large/giant bodied with elevated hip/elbow dysplasia and orthopedic load-bearing risk; see GDV and DCM notes below if this breed is in either documented risk cluster"],
+  Utility: ["Utility-group breed — a mixed category by design; rely on breed-specific notes below over group-level generalization"]
+};
+
+/* Greyhound-specific published reference intervals — IDEXX Reference
+   Laboratories, "Greyhounds: a breed apart" diagnostic update, published
+   June 2025 (N=220 healthy adult greyhounds, CLSI-guideline study).
+   Unlike every other range in this file's BREED_OVERRIDES, these are a
+   real cited breed-specific study, not a qualitative note, so they replace
+   (not adjust) the canine species-default blood panel for this one breed. */
+const GREYHOUND_BLOOD = {
+  WBC: [3.6, 8.6], RBC: [7.04, 9.73], Hemoglobin: [16.9, 23.1], Hematocrit: [52, 68.4],
+  Platelets: [97, 232], Neutrophils: [2.14, 6.52], Lymphocytes: [0.59, 2.1], Monocytes: [0.04, 0.34],
+  Glucose: [72, 118], BUN: [13, 29], Creatinine: [1.2, 2.1], Calcium: [9.3, 10.5],
+  "Total Protein": [5.2, 6.8], Albumin: [2.7, 3.9], ALT: [24, 97], ALP: [12, 79],
+  "Total Bilirubin": [0.2, 0.5], Sodium: [139, 149], Potassium: [3.8, 4.7], Chloride: [107, 117]
+};
+
 /**
  * Single lookup — always resolves (unlisted breed silently falls back to
  * the species default, never throws or blocks an exam).
@@ -153,6 +243,7 @@ function getReferenceRanges(species, breedKey, ageYears, weightKg) {
   const sp = SPECIES_DEFAULTS[species] || SPECIES_DEFAULTS.Canine;
   const isCanine = species !== 'Feline';
   const breedEntry = isCanine ? resolveBreedEntry(breedKey) : null;
+  const canonicalSlug = breedEntry ? breedEntry.slug : null;
   const band = ageBand(ageYears, breedEntry ? breedEntry.senior_age_years : undefined);
   const adj = AGE_BAND_ADJUSTMENTS[band];
 
@@ -165,12 +256,45 @@ function getReferenceRanges(species, breedKey, ageYears, weightKg) {
   }
   hrRange = [hrRange[0] + adj.hr_bonus, hrRange[1] + adj.hr_bonus];
 
-  const blood = {};
-  for (const [analyte, range] of Object.entries(sp.blood)) {
-    blood[analyte] = analyte === 'Creatinine' ? [range[0] * adj.creatinine_factor, range[1] * adj.creatinine_factor] : range;
+  let blood;
+  if (canonicalSlug === 'greyhound') {
+    // Published breed-specific study (see GREYHOUND_BLOOD comment) — used
+    // as-is rather than compounded with the generic age/creatinine factor.
+    blood = { ...GREYHOUND_BLOOD };
+  } else {
+    blood = {};
+    for (const [analyte, range] of Object.entries(sp.blood)) {
+      blood[analyte] = analyte === 'Creatinine' ? [range[0] * adj.creatinine_factor, range[1] * adj.creatinine_factor] : range;
+    }
   }
 
   const breed = (breedKey && BREED_OVERRIDES[breedKey]) || {};
+
+  // Cluster-level notes (group tendency + documented physiological/disease
+  // clusters), then the hand-curated single-breed notes on top.
+  const riskNotes = [];
+  if (breedEntry && GROUP_RISK_NOTES[breedEntry.group]) riskNotes.push(...GROUP_RISK_NOTES[breedEntry.group]);
+  if (canonicalSlug && SIGHTHOUND_BREED_KEYS.has(canonicalSlug)) {
+    riskNotes.push(canonicalSlug === 'greyhound'
+      ? "Sighthound (Greyhound) — blood panel evaluated against Greyhound-specific published reference intervals (IDEXX, 2025), not generic canine ranges; expect higher HCT/RBC/Hgb/creatinine and lower platelet/WBC counts than a non-sighthound at the same values."
+      : "Sighthound-type breed — expect physiologically higher HCT/RBC/hemoglobin and lower platelet/WBC counts than generic canine reference ranges (well documented in Greyhounds; extends qualitatively to this breed as a sighthound, not from a breed-specific study of this exact breed).");
+  }
+  if (canonicalSlug && BRACHYCEPHALIC_BREED_KEYS.has(canonicalSlug)) {
+    riskNotes.push("Brachycephalic conformation — baseline SpO2 typically sits at the lower end of the normal range with reduced respiratory and thermoregulatory reserve; treat any SpO2 dip or thermal asymmetry more seriously than in a mesocephalic breed, and expect an exaggerated heat/stress response.");
+  }
+  if (canonicalSlug && CHONDRODYSTROPHIC_BREED_KEYS.has(canonicalSlug)) {
+    riskNotes.push("Chondrodystrophic (short-legged) conformation — substantially elevated intervertebral disc disease (IVDD) risk; weigh gait/structural findings with a lower threshold for suspecting disc-related pathology.");
+  }
+  if (canonicalSlug && GDV_RISK_BREED_KEYS.has(canonicalSlug)) {
+    riskNotes.push("Large, deep-chested breed — elevated gastric dilatation-volvulus (GDV/bloat) risk; acute abdominal distension or unproductive retching is an emergency regardless of other exam findings.");
+  }
+  if (canonicalSlug && DCM_RISK_BREED_KEYS.has(canonicalSlug)) {
+    riskNotes.push("Documented breed predisposition to dilated cardiomyopathy (DCM) — weigh cardiac findings accordingly and treat this as history-relevant even when the current exam is normal.");
+  }
+  if (canonicalSlug && MDR1_RISK_BREED_KEYS.has(canonicalSlug)) {
+    riskNotes.push("Documented carrier breed for the MDR1 (ABCB1-1Δ) multidrug-sensitivity variant — confirm genetic status before dosing ivermectin-class or other MDR1-substrate medications.");
+  }
+  if (breed.risk_notes) riskNotes.push(...breed.risk_notes);
 
   let weightStatus = null;
   if (breedEntry && weightKg != null) {
@@ -195,10 +319,14 @@ function getReferenceRanges(species, breedKey, ageYears, weightKg) {
     expected_weight_range_kg: breedEntry ? [breedEntry.weight_min_kg, breedEntry.weight_max_kg] : null,
     weight_status: weightStatus,
     blood,
-    breed_risk_notes: breed.risk_notes || []
+    breed_risk_notes: riskNotes
   };
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { getReferenceRanges, canineWeightClass, ageBand, SPECIES_DEFAULTS, BREED_OVERRIDES, resolveBreedEntry };
+  module.exports = {
+    getReferenceRanges, canineWeightClass, ageBand, SPECIES_DEFAULTS, BREED_OVERRIDES, resolveBreedEntry,
+    SIGHTHOUND_BREED_KEYS, BRACHYCEPHALIC_BREED_KEYS, CHONDRODYSTROPHIC_BREED_KEYS,
+    GDV_RISK_BREED_KEYS, DCM_RISK_BREED_KEYS, MDR1_RISK_BREED_KEYS, GROUP_RISK_NOTES, GREYHOUND_BLOOD
+  };
 }
