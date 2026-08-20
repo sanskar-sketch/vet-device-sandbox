@@ -159,7 +159,7 @@ async function loadAiNarrativeInto(report) {
       card.classList.add('ai-live');
       return data.narrative;
     } else if (data.reason === 'no_api_key') {
-      body.innerHTML = `<span class="text-muted">Backend is running but no <code>ANTHROPIC_API_KEY</code> is set — showing the rule-based report only.</span>`;
+      body.innerHTML = `<span class="text-muted">Backend is running but no <code>OPENAI_API_KEY</code> is set — showing the rule-based report only.</span>`;
     } else {
       body.innerHTML = `<span class="text-muted">AI summary unavailable (${data.message || data.reason || 'error'}) — showing the rule-based report only.</span>`;
     }

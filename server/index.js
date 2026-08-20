@@ -54,9 +54,9 @@ async function main() {
   });
   staticApp.listen(STATIC_PORT, () => {
     console.log(`Vitarus frontend   → http://localhost:${STATIC_PORT}`);
-    console.log(process.env.ANTHROPIC_API_KEY
-      ? 'AI narrative       → enabled (ANTHROPIC_API_KEY set)'
-      : 'AI narrative       → disabled (set ANTHROPIC_API_KEY to enable)');
+    console.log(process.env.OPENAI_API_KEY
+      ? 'AI narrative       → enabled (OPENAI_API_KEY set)'
+      : 'AI narrative       → disabled (set OPENAI_API_KEY to enable)');
   });
 
   // ── FLIR — REST-native camera, no bridge needed for real hardware either ──

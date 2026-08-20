@@ -109,9 +109,9 @@ async function main() {
     console.log(`Tekscan WS bridge  → ws://localhost:${PORT}/tekscan`);
     console.log(`Vetscan WS bridge  → ws://localhost:${PORT}/vetscan`);
     console.log(`Patient WS bridge  → ws://localhost:${PORT}/patient`);
-    console.log(process.env.ANTHROPIC_API_KEY
-      ? 'AI narrative       → enabled (ANTHROPIC_API_KEY set)'
-      : 'AI narrative       → disabled (set ANTHROPIC_API_KEY to enable)');
+    console.log(process.env.OPENAI_API_KEY
+      ? 'AI narrative       → enabled (OPENAI_API_KEY set)'
+      : 'AI narrative       → disabled (set OPENAI_API_KEY to enable)');
   });
 }
 

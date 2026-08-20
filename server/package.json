@@ -16,11 +16,11 @@
     "start:patient": "node services/patient-bridge.js"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.120.0",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
     "express": "^4.19.2",
     "express-session": "^1.18.0",
+    "openai": "^7.5.0",
     "pg": "^8.13.1",
     "ws": "^8.17.0"
   }
