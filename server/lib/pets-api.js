@@ -94,6 +94,22 @@ function router(db) {
     res.json(rows);
   }));
 
+  // Staff/vet/admin: typeahead search across registered owner accounts, for
+  // the intake form's owner-email autocomplete. Prefix matches on email rank
+  // first (matches how people actually type while searching), then a looser
+  // substring match on email/name, capped small since this backs a dropdown.
+  r.get('/owners/search', requireAuth, requireRole('staff', 'vet', 'admin', 'super_admin'), ah(async (req, res) => {
+    const q = (req.query.q || '').trim();
+    if (q.length < 2) return res.json([]);
+    const rows = await db.prepare(`
+      SELECT id, email, name FROM users
+      WHERE role = 'owner' AND (email ILIKE ? OR name ILIKE ?)
+      ORDER BY (email ILIKE ?) DESC, email ASC
+      LIMIT 8
+    `).all(`%${q}%`, `%${q}%`, `${q}%`);
+    res.json(rows);
+  }));
+
   // Owner: only their own pets. Clinic roles may also hit this when previewing
   // the Owner Portal — they simply see whatever (if anything) is attributed
   // to their own account, same as any owner would.

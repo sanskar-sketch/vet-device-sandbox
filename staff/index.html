@@ -49,10 +49,12 @@
         <div class="form-group owner-lookup-group">
           <label>Owner email <span style="color:var(--red);">*</span></label>
           <div class="lab-owner-search">
-            <input type="email" id="p-owner" placeholder="e.g. owner@example.com" required>
+            <input type="email" id="p-owner" placeholder="e.g. owner@example.com" required autocomplete="off">
             <button class="btn btn-secondary" id="btn-owner-pet-search" type="button">Find pets</button>
+            <div id="p-owner-suggestions" class="breed-picker-suggestions" hidden></div>
           </div>
-          <p class="text-muted" style="font-size:11.5px;margin-top:6px;">Required — this is where the signed report lands. Find an existing owner to select one of their pets and auto-fill this form, or enter a new owner's email below for a new patient (an account is created for them automatically if one doesn't exist yet).</p>
+          <div id="p-owner-selected" class="owner-selected-badge" hidden></div>
+          <p class="text-muted" style="font-size:11.5px;margin-top:6px;">Required — this is where the signed report lands. Start typing to find an existing owner, or enter a new owner's email below for a new patient (an account is created for them automatically if one doesn't exist yet).</p>
           <div id="owner-pet-search-results" class="owner-pet-results"></div>
         </div>
 
@@ -257,6 +259,13 @@
   }
   .breed-picker-empty {
     padding: 8px 12px; font-size: 12.5px; color: var(--text-muted);
+  }
+
+  .lab-owner-search { position: relative; }
+  .owner-selected-badge {
+    display: inline-flex; align-items: center; gap: 6px; margin-top: 6px;
+    padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600;
+    background: rgba(21,149,141,.12); border: 1px solid var(--accent); color: var(--accent);
   }
 </style>
 
@@ -492,7 +501,75 @@ document.getElementById('btn-patient-modal-close').addEventListener('click', () 
 
 /* ── STEP 1 · Patient Intake ─────────────────────────────────────────────── */
 document.getElementById('btn-owner-pet-search').addEventListener('click', searchOwnerPets);
-document.getElementById('p-owner').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); searchOwnerPets(); } });
+
+/* Owner-email typeahead — searches registered owners as staff types, shows
+   top matches, and marks the field as "selected" once one is picked (same
+   suggestions/select pattern as the breed picker below, reused here rather
+   than duplicated). Selecting one also runs the existing pet lookup so
+   staff land straight on that owner's pets. */
+let ownerSearchTimer = null;
+
+function clearOwnerSelection() {
+  const badge = document.getElementById('p-owner-selected');
+  badge.hidden = true;
+  badge.textContent = '';
+}
+
+function selectOwner(email, name) {
+  document.getElementById('p-owner').value = email;
+  const badge = document.getElementById('p-owner-selected');
+  badge.hidden = false;
+  badge.innerHTML = `✓ Selected: ${staffEscapeHtml(name || email)}`;
+  document.getElementById('p-owner-suggestions').hidden = true;
+  searchOwnerPets();
+}
+
+function renderOwnerSuggestions(owners) {
+  const box = document.getElementById('p-owner-suggestions');
+  box.innerHTML = owners.length
+    ? owners.map(o => `
+        <div class="breed-picker-option" data-email="${staffEscapeHtml(o.email)}" data-name="${staffEscapeHtml(o.name || '')}">
+          <div>${staffEscapeHtml(o.email)}</div>
+          ${o.name ? `<div class="text-muted" style="font-size:11px;">${staffEscapeHtml(o.name)}</div>` : ''}
+        </div>`).join('')
+    : `<div class="breed-picker-empty">No matching existing owner — this can still be a new owner's email.</div>`;
+  box.hidden = false;
+}
+
+const ownerInput = document.getElementById('p-owner');
+const ownerSuggestionsBox = document.getElementById('p-owner-suggestions');
+
+ownerInput.addEventListener('input', () => {
+  clearOwnerSelection();
+  const q = ownerInput.value.trim();
+  clearTimeout(ownerSearchTimer);
+  if (q.length < 2) { ownerSuggestionsBox.hidden = true; return; }
+  ownerSearchTimer = setTimeout(async () => {
+    try {
+      const res = await fetch('/api/owners/search?q=' + encodeURIComponent(q), { credentials: 'same-origin' });
+      renderOwnerSuggestions(res.ok ? await res.json() : []);
+    } catch { ownerSuggestionsBox.hidden = true; }
+  }, 200);
+});
+
+ownerInput.addEventListener('focus', () => { if (ownerInput.value.trim().length >= 2 && ownerSuggestionsBox.innerHTML) ownerSuggestionsBox.hidden = false; });
+
+ownerInput.addEventListener('keydown', e => {
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  const first = !ownerSuggestionsBox.hidden && ownerSuggestionsBox.querySelector('.breed-picker-option');
+  if (first) selectOwner(first.getAttribute('data-email'), first.getAttribute('data-name'));
+  else searchOwnerPets();
+});
+
+ownerSuggestionsBox.addEventListener('click', e => {
+  const opt = e.target.closest('.breed-picker-option');
+  if (opt) selectOwner(opt.getAttribute('data-email'), opt.getAttribute('data-name'));
+});
+
+document.addEventListener('click', e => {
+  if (!e.target.closest('.owner-lookup-group')) ownerSuggestionsBox.hidden = true;
+});
 
 async function searchOwnerPets() {
   const email = document.getElementById('p-owner').value.trim();
@@ -550,6 +627,9 @@ function selectOwnerPet(pet) {
   if (pet.sex) document.getElementById('p-sex').value = pet.sex;
   document.getElementById('p-age').value = pet.age_years ?? 5;
   document.getElementById('p-owner').value = pet.owner_email || '';
+  const ownerBadge = document.getElementById('p-owner-selected');
+  if (pet.owner_email) { ownerBadge.hidden = false; ownerBadge.innerHTML = `✓ Selected: ${staffEscapeHtml(pet.owner_email)}`; }
+  else { ownerBadge.hidden = true; ownerBadge.textContent = ''; }
   document.getElementById('p-color').value = pet.color || '';
   document.getElementById('p-allergies').value = pet.allergies || '';
   document.getElementById('p-medical-notes').value = pet.medical_notes || '';
@@ -1282,6 +1362,7 @@ document.getElementById('btn-restart').addEventListener('click', () => {
   document.getElementById('p-species').value = 'Canine';
   populateBreedOptions();
   document.getElementById('p-owner').value = '';
+  clearOwnerSelection();
   document.getElementById('p-age').value = 5;
   document.getElementById('p-color').value = '';
   document.getElementById('p-allergies').value = '';
