@@ -76,7 +76,16 @@ const ASSESSMENT_SCHEMA = {
       required: SYSTEM_KEYS,
       properties: Object.fromEntries(SYSTEM_KEYS.map(k => [k, systemSchema]))
     },
-    key_findings: { type: 'array', items: { type: 'string' }, description: 'Most clinically significant findings, most urgent first.' },
+    // Keyed by system, not a flat list — js/report-view.js renders each
+    // system card's headline via report.key_findings[systemKey], so an
+    // array here would leave every one of those lines blank.
+    key_findings: {
+      type: 'object', additionalProperties: false, required: SYSTEM_KEYS,
+      properties: Object.fromEntries(SYSTEM_KEYS.map(k => [k, {
+        type: 'string',
+        description: `One-line headline finding for ${k} — the single most important thing about this system, with its measured value. If nothing abnormal, say what was checked and found normal.`
+      }]))
+    },
     recommendations: { type: 'array', items: { type: 'string' }, description: 'Concrete recommended next steps.' }
   }
 };

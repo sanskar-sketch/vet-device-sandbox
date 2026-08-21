@@ -15,11 +15,38 @@
  *   fetchLiveNarrative bool   — POST /api/ai-narrative for a fresh summary (staff, pre-save only)
  *   signedBanner      object  — { vetName, signedAt, notes } | null
  *   showRawJson       bool    — default true
+ *   simplified        bool    — owner-facing view: plain-language labels, no
+ *                               clinical jargon, instrument names, confidence
+ *                               percentages or weighting maths (default false)
  */
 const SYSTEM_LABELS = { skin: 'Skin', heart: 'Heart', musculoskeletal: 'Musculoskeletal', liver: 'Liver', kidneys: 'Kidneys', movement: 'Movement' };
 
+/* Owner-facing equivalents. Staff and vets want the clinical term; an owner
+   reading this at home is better served by the everyday one. */
+const SYSTEM_LABELS_SIMPLE = {
+  skin: 'Skin & Coat', heart: 'Heart', musculoskeletal: 'Bones & Joints',
+  liver: 'Liver', kidneys: 'Kidneys', movement: 'Walking & Movement'
+};
+/* "Moderate Risk" reads as alarming out of clinical context; these say what
+   the owner should actually do about it. */
+const LEVEL_LABELS_SIMPLE = {
+  'Low Risk': 'Looks healthy',
+  'Moderate Risk': 'Worth keeping an eye on',
+  'High Risk': 'Needs attention'
+};
+
 function riskClass(level) {
   return level === 'Low Risk' ? 'risk-low' : level === 'Moderate Risk' ? 'risk-moderate' : 'risk-high';
+}
+
+function levelLabel(level, simplified) {
+  return simplified ? (LEVEL_LABELS_SIMPLE[level] || level) : level;
+}
+
+function scoreBand(score) {
+  if (score >= 75) return 'Overall, things look good.';
+  if (score >= 50) return 'Overall, a few things are worth watching.';
+  return 'Overall, some findings need follow-up.';
 }
 
 function scoreColor(score) {
@@ -81,17 +108,22 @@ function overrideBlockHTML(key, system, editable) {
 }
 
 function reportSystemsHTML(report, opts) {
-  return `<div class="system-grid">` + Object.entries(SYSTEM_LABELS).map(([key, label]) => {
+  const simple = !!opts.simplified;
+  const labels = simple ? SYSTEM_LABELS_SIMPLE : SYSTEM_LABELS;
+  return `<div class="system-grid">` + Object.entries(labels).map(([key, label]) => {
     const s = report.systems[key];
     if (!s) return '';
-    return `
-      <div class="system-card ${riskClass(s.level)}">
-        <div class="sc-top">
-          <span class="sc-name">${label}</span>
-          <span class="risk-badge ${riskClass(s.level)}">${s.level}</span>
-        </div>
-        <div class="sc-finding">${report.key_findings[key] || ''}</div>
-        <div class="sc-confidence">Confidence ${s.confidence}% · ${s.modalities.join(', ')}</div>
+
+    // Owners get the headline finding and the plain-language explanation.
+    // Instrument names, confidence percentages and per-signal weighting are
+    // review tools for the clinic, not decision-useful for an owner — they
+    // mainly invite misreading a number out of context.
+    const detail = simple
+      ? `<details class="sc-reasoning">
+          <summary>What we looked at</summary>
+          <p class="sc-why-text">${s.reasoning}</p>
+        </details>`
+      : `<div class="sc-confidence">Confidence ${s.confidence}% · ${s.modalities.join(', ')}</div>
         <details class="sc-reasoning">
           <summary>Clinical reasoning</summary>
           <div class="sc-section-label">Screened for</div>
@@ -100,15 +132,37 @@ function reportSystemsHTML(report, opts) {
           <ul class="result-bullets">${s.signals.map(sig => `<li>${sig.modality} — ${sig.note} <b>(${sig.contributionPct}% weight)</b></li>`).join('')}</ul>
           <div class="sc-section-label">Why this score</div>
           <p class="sc-why-text">${s.reasoning}</p>
-        </details>
+        </details>`;
+
+    return `
+      <div class="system-card ${riskClass(s.level)}">
+        <div class="sc-top">
+          <span class="sc-name">${label}</span>
+          <span class="risk-badge ${riskClass(s.level)}">${levelLabel(s.level, simple)}</span>
+        </div>
+        <div class="sc-finding">${report.key_findings[key] || ''}</div>
+        ${detail}
         ${overrideBlockHTML(key, s, opts.editable)}
       </div>`;
   }).join('') + `</div>`;
 }
 
-function reportRecosHTML(report) {
+/* Sets expectations before the owner reads any number: this was reviewed by
+   a real vet, and the score is a screening summary rather than a diagnosis. */
+function ownerIntroHTML(report) {
   return `
-    <div class="card-header" style="background:none;border:none;padding:0 0 10px;">Recommendations</div>
+    <div class="owner-intro">
+      <p><b>${scoreBand(report.overall_health_score)}</b> This is a summary of ${report.patient.name || 'your pet'}'s
+      check-up, reviewed and signed off by your vet. Each card below covers one part of
+      your pet's health.</p>
+      <p class="owner-intro-note">The score is a general wellbeing indicator out of 100 — it is not a diagnosis.
+      If anything here is unclear or worrying, your vet is the best person to ask.</p>
+    </div>`;
+}
+
+function reportRecosHTML(report, opts = {}) {
+  return `
+    <div class="card-header" style="background:none;border:none;padding:0 0 10px;">${opts.simplified ? 'What happens next' : 'Recommendations'}</div>
     <ul class="reco-list">${report.recommendations.map(r => `<li>${r}</li>`).join('')}</ul>`;
 }
 
@@ -342,9 +396,10 @@ function renderReport(container, report, opts = {}) {
     reportActionsHTML() +
     reportHeroHTML(report) +
     signedBannerHTML(opts.signedBanner) +
+    (opts.simplified ? ownerIntroHTML(report) : '') +
     aiSummaryHTML(opts) +
     reportSystemsHTML(report, opts) +
-    reportRecosHTML(report) +
+    reportRecosHTML(report, opts) +
     (showRawJson ? reportRawJsonHTML(report) : '');
 
   wireOverrideControls(container, report, opts);

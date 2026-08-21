@@ -196,3 +196,16 @@
 }
 .owner-info-card .oic-row { font-size: 13px; margin-bottom: 4px; }
 .owner-info-card .oic-row b { color: var(--text-dim); font-weight: 600; margin-right: 6px; }
+
+/* ── Owner-facing simplified report (renderReport opts.simplified) ────────
+   Sets context before the owner reads any number — this was vet-reviewed,
+   and the score is a wellbeing indicator, not a diagnosis. */
+.owner-intro {
+  background: var(--surface); border: 1px solid var(--border);
+  border-left: 3px solid var(--accent); border-radius: var(--radius);
+  padding: 14px 16px; margin: 16px 0;
+  font-size: 14px; line-height: 1.65; color: var(--text);
+}
+.owner-intro p { margin: 0 0 8px; }
+.owner-intro p:last-child { margin-bottom: 0; }
+.owner-intro-note { font-size: 12.5px; color: var(--text-muted); }

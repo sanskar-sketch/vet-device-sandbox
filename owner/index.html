@@ -8,7 +8,7 @@
 <title>Vitarus · Owner Portal</title>
 <link rel="stylesheet" href="../css/shared.css?v=2">
 <link rel="stylesheet" href="../css/redesign.css?v=3">
-<link rel="stylesheet" href="../css/report.css?v=4">
+<link rel="stylesheet" href="../css/report.css?v=5">
 <style>
   .wizard-body { max-width: clamp(900px, 95vw, 1600px); margin: 0 auto; padding: 28px 24px 60px; }
   .app-header {
@@ -222,7 +222,7 @@
 
 <script src="../js/auth-guard.js?v=2"></script>
 <script src="../js/utils.js?v=3"></script>
-<script src="../js/report-view.js?v=2"></script>
+<script src="../js/report-view.js?v=3"></script>
 <script src="../js/breed-directory.js?v=1"></script>
 <script src="../js/vet-knowledge-base.js?v=1"></script>
 <script src="../js/clinical-map.js?v=1"></script>
@@ -443,7 +443,10 @@ function openExam(id) {
     aiNarrativeHtml: exam.ai_narrative
       ? exam.ai_narrative.split('\n').filter(p => p.trim()).map(p => `<p>${p}</p>`).join('')
       : null,
-    showRawJson: false
+    showRawJson: false,
+    // Owner-facing: plain-language labels, no instrument names, confidence
+    // percentages or signal-weighting maths (see js/report-view.js).
+    simplified: true
   });
   showView('view-report');
 }
