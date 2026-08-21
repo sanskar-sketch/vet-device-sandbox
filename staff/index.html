@@ -1357,17 +1357,68 @@ async function loadVetOptions() {
   } catch {}
 }
 
-document.getElementById('btn-to-report').addEventListener('click', () => {
+/* Scores come from the AI (server/lib/ai-assessment.js), which reads the
+   raw instrument output directly. runFusion() still runs first: it supplies
+   modality_data + the report skeleton, and stands in if the AI call fails
+   so a network problem can't strand a completed exam with no report. */
+async function buildReport() {
   const analyses = Object.fromEntries(MODULES.map(m => [m.key, state.moduleResults[m.key].analysis]));
-  state.report = runFusion(state.patient, analyses);
-  state.submitted = false;
-  document.getElementById('submit-status').textContent = '';
-  const btn = document.getElementById('btn-submit-review');
-  btn.disabled = false;
-  btn.textContent = 'Submit for Vet Review';
-  renderReport(document.getElementById('report-content'), state.report, { fetchLiveNarrative: true });
-  loadVetOptions();
+  const localReport = runFusion(state.patient, analyses);
+
+  try {
+    const res = await fetch('/api/ai-assessment', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+      body: JSON.stringify({ patient: state.patient, modules: analyses })
+    });
+    const { assessment } = await res.json();
+    if (!assessment) return { report: localReport, aiScored: false };
+
+    // Merge rather than replace: keep each system's SCREENED_FOR list and
+    // the raw modality_data the report UI renders alongside the scores.
+    const systems = {};
+    for (const [key, local] of Object.entries(localReport.systems)) {
+      systems[key] = assessment.systems[key] ? { ...local, ...assessment.systems[key] } : local;
+    }
+    return {
+      report: {
+        ...localReport,
+        overall_health_score: assessment.overall_health_score,
+        systems,
+        key_findings: assessment.key_findings,
+        recommendations: assessment.recommendations,
+        ai_scored: true
+      },
+      aiScored: true
+    };
+  } catch {
+    return { report: localReport, aiScored: false };
+  }
+}
+
+document.getElementById('btn-to-report').addEventListener('click', async () => {
+  const btn = document.getElementById('btn-to-report');
+  const originalLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Analysing…';
+  const reportEl = document.getElementById('report-content');
+  reportEl.innerHTML = '<span class="text-muted">Running AI analysis across all six instruments…</span>';
   goToStep(3);
+
+  try {
+    const { report, aiScored } = await buildReport();
+    state.report = report;
+    state.submitted = false;
+    document.getElementById('submit-status').textContent = aiScored
+      ? '' : 'AI scoring unavailable — showing locally computed scores instead.';
+    const submitBtn = document.getElementById('btn-submit-review');
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Submit for Vet Review';
+    renderReport(reportEl, state.report, { fetchLiveNarrative: true });
+    loadVetOptions();
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalLabel;
+  }
 });
 
 document.getElementById('btn-submit-review').addEventListener('click', async () => {
