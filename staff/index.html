@@ -164,37 +164,43 @@
 
   <!-- ── STEP 2 · Hardware Detection ─────────────────────────────────────── -->
   <div class="step-panel" id="panel-detect">
-    <div class="panel-title">Hardware Detection</div>
-    <div class="panel-sub">Probing every module's configured IP / port / WebSocket bridge endpoint against the patient's own clinical map.</div>
-
-    <div class="card" style="margin-top:14px;">
-      <div class="console-log" id="scan-console"></div>
-    </div>
-
-    <div id="detect-map-container"></div>
-
-    <div class="wizard-nav">
-      <button class="btn btn-secondary" data-back>← Back</button>
-      <div class="detect-actions">
+    <!-- Actions live in a sticky header rather than below the fold — the
+         instrument grid is tall, and burying "Detect"/"Continue" under it
+         meant scrolling past everything just to advance the wizard. -->
+    <div class="panel-head">
+      <div class="panel-head-copy">
+        <div class="panel-title">Hardware Detection</div>
+        <div class="panel-sub">Probing every module's configured IP / port / WebSocket bridge endpoint against the patient's own clinical map.</div>
+      </div>
+      <div class="panel-head-actions">
+        <button class="btn btn-secondary" data-back>← Back</button>
         <button class="btn btn-blue" id="btn-scan">🔍 Detect All Hardware</button>
         <button class="btn btn-primary" id="btn-to-exam" disabled>Continue</button>
       </div>
     </div>
+
+    <div class="card console-card">
+      <div class="console-log" id="scan-console"></div>
+    </div>
+
+    <div id="detect-map-container"></div>
   </div>
 
   <!-- ── STEP 3 · Run Exam ────────────────────────────────────────────────── -->
   <div class="step-panel" id="panel-exam">
-    <div class="panel-title">Run Exam</div>
-    <div class="panel-sub">Each instrument connects, acquires, and runs its AI model in sequence — watch the dock and the patient map.</div>
-
-    <button class="btn btn-blue" id="btn-run-exam">▶ Run Full Exam</button>
+    <div class="panel-head">
+      <div class="panel-head-copy">
+        <div class="panel-title">Run Exam</div>
+        <div class="panel-sub">Each instrument connects, acquires, and runs its AI model in sequence — watch the dock and the patient map.</div>
+      </div>
+      <div class="panel-head-actions">
+        <button class="btn btn-secondary" data-back>← Back</button>
+        <button class="btn btn-blue" id="btn-run-exam">▶ Run Full Exam</button>
+        <button class="btn btn-primary" id="btn-to-report" disabled>Continue → Review</button>
+      </div>
+    </div>
 
     <div id="exam-map-container"></div>
-
-    <div class="wizard-nav">
-      <button class="btn btn-secondary" data-back>← Back</button>
-      <button class="btn btn-primary" id="btn-to-report" disabled>Continue → Review & Submit</button>
-    </div>
   </div>
 
   <!-- ── STEP 4 · Review & Submit for Vet Sign-off ───────────────────────── -->
@@ -712,7 +718,13 @@ function selectOwnerPet(pet) {
   document.getElementById('card-weight').classList.toggle('captured', state.patient.weight_kg != null);
   document.getElementById('intake-error').textContent = '';
 
-  document.querySelectorAll('.owner-pet-row').forEach(row => row.classList.toggle('selected', row.getAttribute('data-owner-pet-id') === String(pet.id)));
+  document.querySelectorAll('.owner-pet-row').forEach(row => {
+    const isSelected = row.getAttribute('data-owner-pet-id') === String(pet.id);
+    row.classList.toggle('selected', isSelected);
+    const rowBtn = row.querySelector('[data-select-owner-pet]');
+    if (rowBtn) rowBtn.textContent = isSelected ? 'Selected' : 'Select';
+  });
+  document.getElementById('p-name').scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
 function populateBreedOptions() {
