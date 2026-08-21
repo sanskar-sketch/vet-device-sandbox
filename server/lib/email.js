@@ -21,9 +21,17 @@ async function send({ to, subject, html }) {
 
   const { Resend } = require('resend');
   const resend = new Resend(apiKey);
-  const { data, error } = await resend.emails.send({ from: FROM, to, subject, html });
-  if (error) return { sent: false, reason: 'send_error', error };
-  return { sent: true, id: data.id };
+  try {
+    const { data, error } = await resend.emails.send({ from: FROM, to, subject, html });
+    if (error) {
+      console.error('Resend send failed:', JSON.stringify(error));
+      return { sent: false, reason: 'send_error', error };
+    }
+    return { sent: true, id: data.id };
+  } catch (err) {
+    console.error('Resend send threw:', err.message);
+    return { sent: false, reason: 'send_exception', error: err.message };
+  }
 }
 
 module.exports = { send };
