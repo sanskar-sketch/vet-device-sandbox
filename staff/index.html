@@ -348,16 +348,20 @@ function goToStep(i) {
 
 document.querySelectorAll('[data-back]').forEach(btn => btn.addEventListener('click', () => goToStep(Math.max(0, currentStep - 1))));
 
-/* ── Global sim/real banner ──────────────────────────────────────────────── */
+/* ── Global sim/real banner ─────────────────────────────────────────────────
+   USE_REAL_DEVICE only picks which simulator generates the data (in-browser
+   vs. the network-hosted bridge used automatically once deployed) — it is
+   NOT a signal that physical hardware is attached. Every server/lib/*.js
+   bridge self-identifies as "[SIM-BACKEND]" in its own connect payload; none
+   talk to a real device SDK yet. Never show "REAL HARDWARE" until that
+   actually changes (see the roadmap's Phase 3, not started). ─────────────── */
 (function injectBanner() {
-  const isReal = DeviceConfig.USE_REAL_DEVICE;
+  const remoteBridge = DeviceConfig.USE_REAL_DEVICE;
   const banner = document.createElement('div');
   banner.style.cssText = `position:fixed;bottom:0;left:0;right:0;z-index:999;
-    background:${isReal ? '#0f2d1a' : '#1a1a2a'};border-top:2px solid ${isReal ? '#3fb950' : '#58a6ff'};
+    background:#1a1a2a;border-top:2px solid #58a6ff;
     padding:6px 20px;font-size:12px;font-family:monospace;text-align:center;`;
-  banner.innerHTML = isReal
-    ? `🟢 <strong style="color:#3fb950">REAL HARDWARE</strong> — pulling from configured bridges/endpoints`
-    : `🔵 <strong style="color:#58a6ff">SIMULATED DATA</strong> — flip <code style="color:#ffaa44">DeviceConfig.USE_REAL_DEVICE</code> in <code>js/driver-base.js</code> to go live`;
+  banner.innerHTML = `🔵 <strong style="color:#58a6ff">SIMULATED DATA</strong> <span style="color:#8b949e">(${remoteBridge ? 'network bridge' : 'in-browser'})</span> — no physical device is connected`;
   document.body.style.paddingBottom = '34px';
   document.body.appendChild(banner);
 })();
