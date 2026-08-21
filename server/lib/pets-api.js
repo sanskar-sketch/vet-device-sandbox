@@ -9,10 +9,11 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
-const { nowISO } = require('./utils');
-const { requireAuth, requireRole } = require('./auth');
+const { nowISO, appOrigin } = require('./utils');
+const { requireAuth, requireRole, hashToken } = require('./auth');
 const { ah } = require('./async-handler');
 const { getBreedDirectoryEntry } = require('../../js/breed-directory.js');
+const email = require('./email');
 
 function router(db) {
   const r = express.Router();
@@ -46,6 +47,28 @@ function router(db) {
           'INSERT INTO users (email, password_hash, role, name, created_at) VALUES (?, ?, ?, ?, ?)'
         ).run(ownerEmail, password_hash, 'owner', placeholderName, nowISO());
         ownerUserId = created.lastInsertRowid;
+
+        // They have no password yet (the hash above is unusable random
+        // bytes) — send the same set-password link forgot-password uses,
+        // pre-generated now, so this is their one way in without asking
+        // the clinic for help.
+        const token = crypto.randomBytes(32).toString('hex');
+        const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+        await db.prepare('UPDATE users SET reset_token_hash = ?, reset_token_expires = ? WHERE id = ?')
+          .run(hashToken(token), expires, ownerUserId);
+
+        const origin = appOrigin(req);
+        await email.send({
+          to: ownerEmail,
+          subject: 'Your Vitarus portal account is ready',
+          html: email.shell({
+            origin,
+            title: 'Your pet is now on Vitarus',
+            bodyHtml: `<p><b>${name}</b> was just added at the clinic under this email address, and a portal account has been created for you — you'll see the full diagnostic report here as soon as a vet signs off.</p>
+                       ${email.button('Set your password', `${origin}/reset-password.html?token=${token}`)}
+                       <p style="margin-top:18px;color:#637784;font-size:12.5px;">This link expires in 7 days. Already have a password? You can also just sign in.</p>`
+          })
+        });
       }
       // else: email already belongs to a non-owner account (staff/vet/admin)
       // — leave unlinked rather than risk misattributing someone's clinic

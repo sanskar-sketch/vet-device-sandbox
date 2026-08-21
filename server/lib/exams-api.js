@@ -11,9 +11,10 @@
  *   super_admin     → same as admin (plus role management via auth.js)
  */
 const express = require('express');
-const { nowISO } = require('./utils');
+const { nowISO, appOrigin } = require('./utils');
 const { requireAuth, requireRole, publicUser } = require('./auth');
 const { ah } = require('./async-handler');
+const email = require('./email');
 
 const RISK_LEVELS = ['Low Risk', 'Moderate Risk', 'High Risk'];
 
@@ -68,12 +69,13 @@ function router(db) {
     if (!pet_id || !report || !report.systems)
       return res.status(400).json({ error: 'pet_id and a report (with systems) are required' });
 
-    const pet = await db.prepare('SELECT id FROM pets WHERE id = ?').get(pet_id);
+    const pet = await db.prepare('SELECT id, name, species, breed FROM pets WHERE id = ?').get(pet_id);
     if (!pet) return res.status(404).json({ error: 'pet not found' });
 
     // Validate assigned_vet_user_id if provided
+    let vet = null;
     if (assigned_vet_user_id) {
-      const vet = await db.prepare("SELECT id FROM users WHERE id = ? AND role = 'vet'").get(assigned_vet_user_id);
+      vet = await db.prepare("SELECT id, name, email FROM users WHERE id = ? AND role = 'vet'").get(assigned_vet_user_id);
       if (!vet) return res.status(400).json({ error: 'assigned_vet_user_id must be a valid vet account' });
     }
 
@@ -86,6 +88,23 @@ function router(db) {
       assigned_vet_user_id
         ? `Exam submitted for review by vet ID ${assigned_vet_user_id}`
         : 'Exam submitted for vet review');
+
+    // Only the specifically-assigned vet has a single clear recipient —
+    // an unassigned exam goes into the shared pending pool any vet can
+    // pick up, so there's no one obvious inbox to notify.
+    if (vet) {
+      const origin = appOrigin(req);
+      await email.send({
+        to: vet.email,
+        subject: `New exam ready for your review — ${pet.name}`,
+        html: email.shell({
+          origin,
+          title: 'A new exam is awaiting your review',
+          bodyHtml: `<p><b>${pet.name}</b> (${pet.species}${pet.breed ? ', ' + pet.breed : ''}) has a new diagnostic exam ready for your review and signature.</p>
+                     ${email.button('Review now', `${origin}/vet/index.html`)}`
+        })
+      });
+    }
 
     const row = await db.prepare('SELECT * FROM exams WHERE id = ?').get(info.lastInsertRowid);
     res.json(await serializeExam(row, { db }));
@@ -216,6 +235,21 @@ function router(db) {
     `).run(req.user.id, nowISO(), vet_notes || null, row.id);
 
     await logEvent(db, row.id, req.user.id, 'signed', 'Report signed and released to owner');
+
+    const pet = await db.prepare('SELECT name, species, owner_email FROM pets WHERE id = ?').get(row.pet_id);
+    if (pet && pet.owner_email) {
+      const origin = appOrigin(req);
+      await email.send({
+        to: pet.owner_email,
+        subject: `${pet.name}'s report is ready to view`,
+        html: email.shell({
+          origin,
+          title: 'Your pet\'s report is ready',
+          bodyHtml: `<p>Dr. ${req.user.name} has reviewed and signed off on <b>${pet.name}</b>'s diagnostic report — it's now available in your Vitarus portal.</p>
+                     ${email.button('View report', `${origin}/owner/index.html`)}`
+        })
+      });
+    }
 
     const updated = await db.prepare('SELECT * FROM exams WHERE id = ?').get(row.id);
     res.json(await serializeExam(updated, { db }));

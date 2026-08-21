@@ -10,7 +10,7 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
-const { nowISO } = require('./utils');
+const { nowISO, appOrigin } = require('./utils');
 const { ah } = require('./async-handler');
 const email = require('./email');
 
@@ -96,13 +96,18 @@ function router(db) {
     await db.prepare('UPDATE users SET reset_token_hash = ?, reset_token_expires = ? WHERE id = ?')
       .run(hashToken(token), expires, user.id);
 
-    const resetUrl = `${req.protocol}://${req.get('host')}/reset-password.html?token=${token}`;
+    const origin = appOrigin(req);
+    const resetUrl = `${origin}/reset-password.html?token=${token}`;
     const result = await email.send({
       to: toEmail,
       subject: 'Reset your Vitarus password',
-      html: `<p>Someone requested a password reset for this Vitarus account.</p>
-             <p><a href="${resetUrl}">Click here to choose a new password</a> — this link expires in 1 hour.</p>
-             <p>If this wasn't you, no action is needed.</p>`
+      html: email.shell({
+        origin,
+        title: 'Reset your password',
+        bodyHtml: `<p>Someone requested a password reset for this Vitarus account.</p>
+                   ${email.button('Choose a new password', resetUrl)}
+                   <p style="margin-top:18px;color:#637784;font-size:12.5px;">This link expires in 1 hour. If this wasn't you, no action is needed.</p>`
+      })
     });
 
     // Only expose the raw link when no email was actually sent — once
@@ -292,4 +297,4 @@ function requireRole(...roles) {
   };
 }
 
-module.exports = { router, attachUser, requireAuth, requireRole, publicUser, isAdmin };
+module.exports = { router, attachUser, requireAuth, requireRole, publicUser, isAdmin, hashToken };
