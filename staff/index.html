@@ -508,15 +508,22 @@ document.getElementById('btn-owner-pet-search').addEventListener('click', search
    than duplicated). Selecting one also runs the existing pet lookup so
    staff land straight on that owner's pets. */
 let ownerSearchTimer = null;
+// Remembers the display name from the typeahead pick, keyed to the email it
+// was picked for — selectOwnerPet() (fired automatically when that owner
+// turns out to have exactly one pet) checks this so the badge keeps showing
+// the owner's name instead of being overwritten with their bare email.
+let selectedOwnerName = null;
 
 function clearOwnerSelection() {
   const badge = document.getElementById('p-owner-selected');
   badge.hidden = true;
   badge.textContent = '';
+  selectedOwnerName = null;
 }
 
 function selectOwner(email, name) {
   document.getElementById('p-owner').value = email;
+  selectedOwnerName = { email, name };
   const badge = document.getElementById('p-owner-selected');
   badge.hidden = false;
   badge.innerHTML = `✓ Selected: ${staffEscapeHtml(name || email)}`;
@@ -571,6 +578,8 @@ document.addEventListener('click', e => {
   if (!e.target.closest('.owner-lookup-group')) ownerSuggestionsBox.hidden = true;
 });
 
+const NEW_PET_BUTTON_HTML = `<button class="btn btn-secondary" id="btn-new-pet-for-owner" type="button" style="margin-top:8px;">+ Add a new pet for this owner</button>`;
+
 async function searchOwnerPets() {
   const email = document.getElementById('p-owner').value.trim();
   const el = document.getElementById('owner-pet-search-results');
@@ -584,7 +593,8 @@ async function searchOwnerPets() {
     if (!res.ok) throw new Error('search failed');
     const pets = await res.json();
     if (!pets.length) {
-      el.innerHTML = '<span class="text-muted">No pets found for that owner email — continue below to add a new patient.</span>';
+      el.innerHTML = `<span class="text-muted">No pets found for that owner email yet.</span>${NEW_PET_BUTTON_HTML}`;
+      wireNewPetForOwnerButton();
       return;
     }
     el.innerHTML = pets.map(p => `
@@ -597,14 +607,56 @@ async function searchOwnerPets() {
           <div class="owner-pet-meta">${staffEscapeHtml(p.owner_email || 'No owner email on file')}${p.microchip ? ' · chip ' + staffEscapeHtml(p.microchip) : ''}</div>
         </div>
         <button class="btn btn-secondary" data-select-owner-pet="${p.id}" type="button">Select</button>
-      </div>`).join('');
+      </div>`).join('') + NEW_PET_BUTTON_HTML;
     el.querySelectorAll('[data-select-owner-pet]').forEach(btn => {
       const pet = pets.find(p => String(p.id) === btn.getAttribute('data-select-owner-pet'));
       btn.addEventListener('click', () => selectOwnerPet(pet));
     });
+    wireNewPetForOwnerButton();
+    // Unambiguous case — autofill immediately instead of making staff click
+    // "Select" on the one result. With multiple pets, leave the choice to
+    // staff rather than guess which one they meant.
+    if (pets.length === 1) selectOwnerPet(pets[0]);
   } catch {
     el.innerHTML = '<span class="text-muted">Could not find pets — is the backend running?</span>';
   }
+}
+
+function wireNewPetForOwnerButton() {
+  const btn = document.getElementById('btn-new-pet-for-owner');
+  if (btn) btn.addEventListener('click', startNewPetForOwner);
+}
+
+// Keeps the already-selected/typed owner email (and its badge) intact —
+// that's what links the new pet to this owner's account server-side — and
+// only clears the pet-specific fields, so staff can register another pet
+// for someone who already has one without re-searching the owner.
+function startNewPetForOwner() {
+  document.getElementById('p-name').value = '';
+  document.getElementById('p-species').value = 'Canine';
+  populateBreedOptions();
+  document.getElementById('p-breed-search').value = '';
+  updateBreedPreview();
+  document.getElementById('p-sex').value = 'Male (Intact)';
+  document.getElementById('p-age').value = 5;
+  document.getElementById('p-color').value = '';
+  document.getElementById('p-allergies').value = '';
+  document.getElementById('p-medical-notes').value = '';
+  document.getElementById('intake-error').textContent = '';
+
+  const ownerEmail = document.getElementById('p-owner').value.trim();
+  state.patient = {
+    ...state.patient, name: '', species: 'Canine', breed: '', breedKey: '',
+    sex: 'Male (Intact)', age_years: 5, ownerEmail, microchip: null, weight_kg: null,
+    color: '', allergies: '', medicalNotes: '', bcsPhotoId: null, petId: null
+  };
+
+  ['microchip', 'weight', 'bcs'].forEach(k => {
+    document.getElementById('result-' + k).textContent = '';
+    document.getElementById('card-' + k).classList.remove('captured');
+  });
+  document.querySelectorAll('.owner-pet-row').forEach(row => row.classList.remove('selected'));
+  document.getElementById('p-name').focus();
 }
 
 function selectOwnerPet(pet) {
@@ -628,8 +680,11 @@ function selectOwnerPet(pet) {
   document.getElementById('p-age').value = pet.age_years ?? 5;
   document.getElementById('p-owner').value = pet.owner_email || '';
   const ownerBadge = document.getElementById('p-owner-selected');
-  if (pet.owner_email) { ownerBadge.hidden = false; ownerBadge.innerHTML = `✓ Selected: ${staffEscapeHtml(pet.owner_email)}`; }
-  else { ownerBadge.hidden = true; ownerBadge.textContent = ''; }
+  if (pet.owner_email) {
+    const knownName = selectedOwnerName && selectedOwnerName.email === pet.owner_email ? selectedOwnerName.name : null;
+    ownerBadge.hidden = false;
+    ownerBadge.innerHTML = `✓ Selected: ${staffEscapeHtml(knownName || pet.owner_email)}`;
+  } else { ownerBadge.hidden = true; ownerBadge.textContent = ''; }
   document.getElementById('p-color').value = pet.color || '';
   document.getElementById('p-allergies').value = pet.allergies || '';
   document.getElementById('p-medical-notes').value = pet.medical_notes || '';

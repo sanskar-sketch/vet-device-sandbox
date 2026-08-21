@@ -2,6 +2,10 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "vitarus-live",
+      "url": "https://vitarus.onrender.com"
+    },
+    {
       "name": "vitarus-static",
       "runtimeExecutable": "python3",
       "runtimeArgs": ["-m", "http.server", "4173"],
