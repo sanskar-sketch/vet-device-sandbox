@@ -1,36 +1,35 @@
 /**
  * server/lib/email.js
  *
- * Thin wrapper around Resend for the platform's transactional email. Uses
- * Resend's own onboarding@resend.dev sender by default — a shared address
- * Resend pre-verifies for you, so real mail can go out to real inboxes
- * with zero domain/DNS setup. Swap EMAIL_FROM once a custom domain is
- * verified in Resend (needed for higher volume / better deliverability;
- * onboarding@resend.dev is rate-limited and clearly not your own brand).
+ * Thin wrapper around SendGrid for the platform's transactional email.
+ * Unlike Resend's shared onboarding@resend.dev sender (which can only
+ * email the Resend account's own address without a verified domain),
+ * SendGrid's Single Sender Verification only restricts which FROM address
+ * you send from — once EMAIL_FROM is verified in the SendGrid dashboard,
+ * it can send to any recipient, no domain/DNS needed. Trade-off: SendGrid's
+ * free tier is a 60-day trial (100 emails/day), then requires a paid plan —
+ * fine for the near-term use case this was set up for.
  *
- * No RESEND_API_KEY configured -> send() resolves { sent: false } instead
- * of throwing, so every caller can fall back to its own sandbox behavior
- * (e.g. auth.js showing the reset link directly) exactly like the
- * OPENAI_API_KEY / AI narrative feature already does.
+ * No SENDGRID_API_KEY or EMAIL_FROM configured -> send() resolves
+ * { sent: false } instead of throwing, so every caller can fall back to
+ * its own sandbox behavior (e.g. auth.js showing the reset link directly)
+ * exactly like the OPENAI_API_KEY / AI narrative feature already does.
  */
-const FROM = process.env.EMAIL_FROM || 'Vitarus <onboarding@resend.dev>';
-
 async function send({ to, subject, html }) {
-  const apiKey = process.env.RESEND_API_KEY;
+  const apiKey = process.env.SENDGRID_API_KEY;
+  const from = process.env.EMAIL_FROM;
   if (!apiKey) return { sent: false, reason: 'no_api_key' };
+  if (!from) return { sent: false, reason: 'no_from_address' };
 
-  const { Resend } = require('resend');
-  const resend = new Resend(apiKey);
+  const sgMail = require('@sendgrid/mail');
+  sgMail.setApiKey(apiKey);
   try {
-    const { data, error } = await resend.emails.send({ from: FROM, to, subject, html });
-    if (error) {
-      console.error('Resend send failed:', JSON.stringify(error));
-      return { sent: false, reason: 'send_error', error };
-    }
-    return { sent: true, id: data.id };
+    await sgMail.send({ to, from, subject, html });
+    return { sent: true };
   } catch (err) {
-    console.error('Resend send threw:', err.message);
-    return { sent: false, reason: 'send_exception', error: err.message };
+    const detail = err.response && err.response.body ? JSON.stringify(err.response.body) : err.message;
+    console.error('SendGrid send failed:', detail);
+    return { sent: false, reason: 'send_error', error: detail };
   }
 }
 

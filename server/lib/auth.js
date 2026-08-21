@@ -80,9 +80,10 @@ function router(db) {
   }));
 
   // ── Forgot password ──────────────────────────────────────────────────────
-  // Sends via Resend when RESEND_API_KEY is configured (server/lib/email.js);
-  // otherwise falls back to handing the reset link straight back to the
-  // caller for the UI to display, same as before email was wired in.
+  // Sends via SendGrid when SENDGRID_API_KEY + EMAIL_FROM are configured
+  // (server/lib/email.js); otherwise falls back to handing the reset link
+  // straight back to the caller for the UI to display, same as before email
+  // was wired in.
   r.post('/forgot-password', ah(async (req, res) => {
     const { email: toEmail } = req.body || {};
     if (!toEmail) return res.status(400).json({ error: 'email is required' });
@@ -105,7 +106,7 @@ function router(db) {
     });
 
     // Only expose the raw link when no email was actually sent — once
-    // RESEND_API_KEY is set, the reset link should only ever reach the
+    // SendGrid is configured, the reset link should only ever reach the
     // inbox it was requested for, not the API response.
     res.json(result.sent ? { ok: true } : { ok: true, resetUrl: `/reset-password.html?token=${token}` });
   }));
