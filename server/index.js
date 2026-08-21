@@ -57,6 +57,9 @@ async function main() {
     console.log(process.env.OPENAI_API_KEY
       ? 'AI narrative       → enabled (OPENAI_API_KEY set)'
       : 'AI narrative       → disabled (set OPENAI_API_KEY to enable)');
+    console.log(process.env.RESEND_API_KEY
+      ? 'Email delivery     → enabled (RESEND_API_KEY set)'
+      : 'Email delivery     → disabled (set RESEND_API_KEY to enable — reset links shown directly instead)');
   });
 
   // ── FLIR — REST-native camera, no bridge needed for real hardware either ──

@@ -12,6 +12,7 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const { nowISO } = require('./utils');
 const { ah } = require('./async-handler');
+const email = require('./email');
 
 const hashToken = token => crypto.createHash('sha256').update(token).digest('hex');
 
@@ -79,14 +80,14 @@ function router(db) {
   }));
 
   // ── Forgot password ──────────────────────────────────────────────────────
-  // No email transport is configured in this sandbox, so instead of sending
-  // mail, the reset link is handed straight back to the caller for the UI to
-  // display. Real deployments would swap the response for an email send.
+  // Sends via Resend when RESEND_API_KEY is configured (server/lib/email.js);
+  // otherwise falls back to handing the reset link straight back to the
+  // caller for the UI to display, same as before email was wired in.
   r.post('/forgot-password', ah(async (req, res) => {
-    const { email } = req.body || {};
-    if (!email) return res.status(400).json({ error: 'email is required' });
+    const { email: toEmail } = req.body || {};
+    if (!toEmail) return res.status(400).json({ error: 'email is required' });
 
-    const user = await db.prepare('SELECT id FROM users WHERE email = ?').get(email);
+    const user = await db.prepare('SELECT id FROM users WHERE email = ?').get(toEmail);
     if (!user) return res.status(404).json({ error: 'No account found with that email.' });
 
     const token = crypto.randomBytes(32).toString('hex');
@@ -94,7 +95,19 @@ function router(db) {
     await db.prepare('UPDATE users SET reset_token_hash = ?, reset_token_expires = ? WHERE id = ?')
       .run(hashToken(token), expires, user.id);
 
-    res.json({ ok: true, resetUrl: `/reset-password.html?token=${token}` });
+    const resetUrl = `${req.protocol}://${req.get('host')}/reset-password.html?token=${token}`;
+    const result = await email.send({
+      to: toEmail,
+      subject: 'Reset your Vitarus password',
+      html: `<p>Someone requested a password reset for this Vitarus account.</p>
+             <p><a href="${resetUrl}">Click here to choose a new password</a> — this link expires in 1 hour.</p>
+             <p>If this wasn't you, no action is needed.</p>`
+    });
+
+    // Only expose the raw link when no email was actually sent — once
+    // RESEND_API_KEY is set, the reset link should only ever reach the
+    // inbox it was requested for, not the API response.
+    res.json(result.sent ? { ok: true } : { ok: true, resetUrl: `/reset-password.html?token=${token}` });
   }));
 
   // ── Reset password ───────────────────────────────────────────────────────

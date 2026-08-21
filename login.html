@@ -278,7 +278,9 @@ document.getElementById('form-forgot').addEventListener('submit', async (e) => {
     });
     const data = await res.json();
     if (!res.ok) { showAlert(msgEl, data.error || 'Could not generate a reset link.', 'error'); return; }
-    showAlert(msgEl, `This demo has no email service configured — use your reset link directly: <a href="${data.resetUrl}">Reset your password</a>`, 'success');
+    showAlert(msgEl, data.resetUrl
+      ? `Email delivery isn't configured yet — use your reset link directly: <a href="${data.resetUrl}">Reset your password</a>`
+      : `Check your inbox — we've sent a password reset link to that address. It expires in 1 hour.`, 'success');
   } catch {
     showAlert(msgEl, 'Could not reach the server — is the backend running?', 'error');
   } finally {
