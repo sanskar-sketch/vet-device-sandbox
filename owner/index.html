@@ -237,6 +237,10 @@ let myExams = [];
 let currentPet  = null;   // pet object in detail/compare views
 let checkedExamIds = [];  // up to 2 IDs checked for comparison
 
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+}
+
 // ── View switcher ──────────────────────────────────────────────────────
 const VIEWS = ['view-list', 'view-detail', 'view-report', 'view-compare'];
 function showView(id) {
@@ -607,7 +611,7 @@ function renderNewPetBreedSuggestions(query) {
   const matches = q ? list.filter(b => b.label.toLowerCase().includes(q)) : list;
   const box = document.getElementById('new-pet-breed-suggestions');
   box.innerHTML = matches.length
-    ? matches.slice(0, 50).map(b => `<div class="breed-picker-option" data-key="${b.key}">${b.label}</div>`).join('')
+    ? matches.slice(0, 50).map(b => `<div class="breed-picker-option" data-key="${b.key}">${escapeHtml(b.label)}</div>`).join('')
       + (matches.length > 50 ? `<div class="breed-picker-empty">${matches.length - 50} more — keep typing to narrow it down</div>` : '')
     : '<div class="breed-picker-empty">No matching breed</div>';
   box.hidden = false;
