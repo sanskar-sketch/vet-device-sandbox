@@ -358,7 +358,7 @@ async function loadPets() {
               <div class="pc-meta">${pet.species}${petBreedMeta(pet)}</div>
               <div style="margin-top:4px;">${countLabel}</div>
             </div>
-            ${examCount > 0 ? '<div class="pc-right">›</div>' : ''}
+            <div class="pc-right">›</div>
           </div>
         </div>`;
     }).join('');
@@ -366,8 +366,7 @@ async function loadPets() {
     el.querySelectorAll('.pet-card[data-pet-id]').forEach(card => {
       card.addEventListener('click', () => {
         const pet = myPets.find(p => String(p.id) === card.getAttribute('data-pet-id'));
-        const exams = myExams.filter(e => e.pet_id === pet.id);
-        if (exams.length > 0) openPetDetail(pet);
+        if (pet) openPetDetail(pet);
       });
     });
 
