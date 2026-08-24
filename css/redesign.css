@@ -117,4 +117,13 @@ body::before {
   .app-header, .landing-header { padding-left: 16px; padding-right: 16px; }
   .app-header .stepper { display: none; }
   .wizard-body { padding: 24px 16px 48px; }
+
+  /* Brand + auth-strip no longer fit on one line at phone widths — wrap
+     into two rows instead of squeezing the owner's name into a sliver next
+     to the logo. auth-strip's own margin-left:auto (shared.css) then keeps
+     it right-aligned on its own row once wrapped. */
+  .app-header { flex-wrap: wrap; row-gap: 8px; }
+  .app-brand { font-size: 15px; }
+  .app-brand .sub { display: none; }
+  .auth-strip-name { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 }

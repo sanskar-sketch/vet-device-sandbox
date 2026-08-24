@@ -86,6 +86,14 @@
   .login-art img { width: 48%; }
 }
 
+@media (max-width: 480px) {
+  /* The decorative orbit graphic has no min-width guard, so on a phone the
+     flex row squeezes its circle into a lopsided oval instead of wrapping —
+     drop it rather than let a 76px decoration fight the headline for space. */
+  .owner-welcome .portal-graphic, .clinical-strip .portal-graphic { display: none; }
+  .owner-welcome, .clinical-strip { padding: 16px 18px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .landing-hero::before, .owner-welcome::after, .clinical-strip::after, .portal-graphic::after, .login-art::before,
   .landing-signal, .landing-signal::after, .clinical-metric .pulse { animation: none !important; }
