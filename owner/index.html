@@ -250,13 +250,13 @@ function showView(id) {
 
 // ── Helpers ────────────────────────────────────────────────────────────
 // SYSTEM_LABELS, riskClass(), scoreColor() come from report-view.js, loaded above.
-// Only these breed keys have a real illustration under /assets/breeds/ — the
-// 220 breeds added later from js/breed-directory.js don't, so anything else
-// falls back to the paw icon instead of a broken <img>.
-const BREED_CUSTOM_ART_KEYS = new Set([
-  "labrador", "golden_retriever", "german_shepherd", "beagle", "poodle",
-  "siamese", "persian", "maine_coon", "ragdoll", "british_shorthair"
-]);
+// BREED_CUSTOM_ART_KEYS comes from js/clinical-map.js (loaded above) — only
+// those breed keys have a real illustration under /assets/breeds/; the 220
+// breeds added later from js/breed-directory.js don't, so anything else
+// falls back to the paw icon instead of a broken <img>. Declaring a second
+// copy of this const here previously threw a duplicate-declaration
+// SyntaxError that silently killed this entire script block — including
+// the breed search wired up further down.
 function petThumbHTML(pet, size = 52) {
   return pet.breed_key && BREED_CUSTOM_ART_KEYS.has(pet.breed_key)
     ? `<img class="pet-thumb" style="width:${size}px;height:${size}px;" src="/assets/breeds/${pet.breed_key}.webp" alt="${pet.name}">`
