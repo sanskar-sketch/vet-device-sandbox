@@ -57,6 +57,11 @@
   .detail-pet-banner .dpb-fallback { width: 44px; height: 44px; border-radius: var(--radius-sm); background: var(--bg); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; font-size: 20px; }
   .detail-pet-banner .dpb-name { font-size: 17px; font-weight: 700; }
   .detail-pet-banner .dpb-meta { font-size: 12px; color: var(--text-muted); }
+  .dpb-photo-btn {
+    display: inline-block; margin-top: 6px; font-size: 12px; font-weight: 600;
+    color: var(--accent); cursor: pointer;
+  }
+  .dpb-photo-btn:hover { color: var(--accent-hover); text-decoration: underline; }
 
   .detail-section-title { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; color: var(--text-dim); margin-bottom: 10px; }
 
@@ -258,9 +263,61 @@ function showView(id) {
 // SyntaxError that silently killed this entire script block — including
 // the breed search wired up further down.
 function petThumbHTML(pet, size = 52) {
+  // A real uploaded photo always wins over breed art/fallback. Cache-busted
+  // so a just-uploaded replacement shows immediately instead of the
+  // browser serving the old image it already has cached for this URL.
+  if (pet.has_photo) {
+    return `<img class="pet-thumb" style="width:${size}px;height:${size}px;object-fit:cover;" src="/api/pets/${pet.id}/photo?t=${Date.now()}" alt="${pet.name}">`;
+  }
   return pet.breed_key && BREED_CUSTOM_ART_KEYS.has(pet.breed_key)
     ? `<img class="pet-thumb" style="width:${size}px;height:${size}px;" src="/assets/breeds/${pet.breed_key}.webp" alt="${pet.name}">`
     : `<div class="pet-thumb-fallback" style="width:${size}px;height:${size}px;">🐾</div>`;
+}
+
+// ── Pet photo upload (camera or library — plain accept="image/*" gives the
+// OS-native choice of both on mobile; a plain file picker on desktop) ──────
+// Resized/compressed client-side before upload so a phone's multi-MB photo
+// doesn't become a multi-MB Postgres row (see server/db.js — pet_photos
+// stores raw bytes) or a slow upload on a clinic wifi connection.
+function resizeImageFile(file, maxDim = 1200, quality = 0.82) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      let { width, height } = img;
+      if (width > maxDim || height > maxDim) {
+        const scale = maxDim / Math.max(width, height);
+        width = Math.round(width * scale);
+        height = Math.round(height * scale);
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width; canvas.height = height;
+      canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+      canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Could not process that image')), 'image/jpeg', quality);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Could not read that file as an image')); };
+    img.src = url;
+  });
+}
+
+async function uploadPetPhoto(petId, file) {
+  const statusEl = document.getElementById('pet-photo-status');
+  if (statusEl) { statusEl.style.color = 'var(--text-muted)'; statusEl.textContent = 'Uploading…'; }
+  try {
+    const blob = await resizeImageFile(file);
+    const fd = new FormData();
+    fd.append('photo', blob, 'pet.jpg');
+    const res = await fetch(`/api/pets/${petId}/photo`, { method: 'POST', credentials: 'same-origin', body: fd });
+    if (!res.ok) throw new Error((await res.json()).error || 'Could not upload photo');
+
+    const pet = myPets.find(p => p.id === petId);
+    if (pet) pet.has_photo = true;
+    if (currentPet && currentPet.id === petId) { currentPet.has_photo = true; openPetDetail(currentPet); }
+    loadPets();
+  } catch (e) {
+    if (statusEl) { statusEl.style.color = 'var(--red)'; statusEl.textContent = e.message; }
+  }
 }
 function petBreedMeta(pet) {
   return `${pet.breed ? ' · ' + pet.breed : ''}${pet.breed_group ? ' · ' + pet.breed_group : ''}${pet.breed_size ? ' · ' + pet.breed_size : ''}`;
@@ -338,8 +395,11 @@ function openPetDetail(pet) {
           ${pet.age_years != null ? ' · ' + pet.age_years + ' yrs' : ''}
           ${pet.weight_kg  != null ? ' · ' + pet.weight_kg  + ' kg' : ''}
         </div>
+        <label class="dpb-photo-btn" for="pet-photo-input">${pet.has_photo ? 'Change photo' : '+ Add a photo'}</label>
+        <span id="pet-photo-status" class="text-muted" style="font-size:11px;margin-left:8px;"></span>
       </div>
     </div>
+    <input type="file" id="pet-photo-input" accept="image/*" hidden>
     <div class="pet-profile-grid">
       <div><span class="ppg-label">Sex</span><span class="ppg-value">${pet.sex || '—'}</span></div>
       <div><span class="ppg-label">Age</span><span class="ppg-value">${pet.age_years != null ? pet.age_years + ' yrs' : '—'}</span></div>
@@ -347,6 +407,12 @@ function openPetDetail(pet) {
       <div><span class="ppg-label">Microchip</span><span class="ppg-value">${pet.microchip || '—'}</span></div>
       <div><span class="ppg-label">Added</span><span class="ppg-value">${new Date(pet.created_at).toLocaleDateString()}</span></div>
     </div>`;
+
+  document.getElementById('pet-photo-input').addEventListener('change', e => {
+    const file = e.target.files && e.target.files[0];
+    if (file) uploadPetPhoto(pet.id, file);
+    e.target.value = '';
+  });
 
   const sectionLabel = document.getElementById('detail-section-label');
   sectionLabel.textContent = petExams.length === 1 ? '1 Report' : `${petExams.length} Reports`;
@@ -450,7 +516,11 @@ function openExam(id) {
     showRawJson: false,
     // Owner-facing: plain-language labels, no instrument names, confidence
     // percentages or signal-weighting maths (see js/report-view.js).
-    simplified: true
+    simplified: true,
+    // From the live pet record (exam.pet, joined server-side), not the
+    // frozen report JSON — a photo uploaded after this exam was signed
+    // should still show up when the report is opened later.
+    petPhotoUrl: exam.pet && exam.pet.has_photo ? `/api/pets/${exam.pet.id}/photo` : null
   });
   showView('view-report');
 }

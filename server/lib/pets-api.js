@@ -9,11 +9,38 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
+const multer = require('multer');
 const { nowISO, appOrigin } = require('./utils');
 const { requireAuth, requireRole, hashToken } = require('./auth');
 const { ah } = require('./async-handler');
 const { getBreedDirectoryEntry } = require('../../js/breed-directory.js');
 const email = require('./email');
+
+const CLINIC_ROLES = ['staff', 'vet', 'admin', 'super_admin'];
+
+// Photos are captured on a phone camera or picked from a library, so the
+// client already resizes/compresses before upload (see owner/index.html's
+// resizeImageFile) — 6MB is a backstop against something slipping past
+// that, not the expected size.
+const uploadPhoto = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 6 * 1024 * 1024 },
+  fileFilter(req, file, cb) {
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.mimetype)) {
+      return cb(new Error('Only JPEG, PNG, or WebP images are allowed'));
+    }
+    cb(null, true);
+  }
+});
+// multer's own errors (bad mimetype, too large) reach Express via next(err),
+// which would otherwise fall through to the app's generic 500 handler —
+// wrapped so they come back as a normal, readable 400 instead.
+function uploadPhotoMw(req, res, next) {
+  uploadPhoto.single('photo')(req, res, err => {
+    if (err) return res.status(400).json({ error: err.message || 'invalid photo upload' });
+    next();
+  });
+}
 
 function router(db) {
   const r = express.Router();
@@ -158,6 +185,54 @@ function router(db) {
     if (!owner && pet.owner_email) owner = { email: pet.owner_email, registered: false };
 
     res.json({ ...pet, owner });
+  }));
+
+  // ── Pet photo: upload / fetch / remove ────────────────────────────────────
+  // Bytes live in pet_photos, never in a plain pets row (see server/db.js) —
+  // pets.has_photo is the cheap flag every pet list already carries so the
+  // frontend knows whether to request the image at all.
+  r.post('/pets/:id/photo', requireAuth, uploadPhotoMw, ah(async (req, res) => {
+    const pet = await db.prepare('SELECT id, owner_user_id FROM pets WHERE id = ?').get(req.params.id);
+    if (!pet) return res.status(404).json({ error: 'pet not found' });
+    const isOwnerOfPet = req.user.role === 'owner' && pet.owner_user_id === req.user.id;
+    if (!isOwnerOfPet && !CLINIC_ROLES.includes(req.user.role))
+      return res.status(403).json({ error: 'not permitted' });
+    if (!req.file) return res.status(400).json({ error: 'photo file is required' });
+
+    await db.prepare(`
+      INSERT INTO pet_photos (pet_id, photo_data, content_type, uploaded_at) VALUES (?, ?, ?, ?)
+      ON CONFLICT (pet_id) DO UPDATE SET photo_data = EXCLUDED.photo_data, content_type = EXCLUDED.content_type, uploaded_at = EXCLUDED.uploaded_at
+      RETURNING pet_id AS id
+    `).run(pet.id, req.file.buffer, req.file.mimetype, nowISO());
+    await db.prepare('UPDATE pets SET has_photo = true WHERE id = ?').run(pet.id);
+
+    res.json({ ok: true });
+  }));
+
+  r.get('/pets/:id/photo', requireAuth, ah(async (req, res) => {
+    const pet = await db.prepare('SELECT id, owner_user_id FROM pets WHERE id = ?').get(req.params.id);
+    if (!pet) return res.status(404).end();
+    const isOwnerOfPet = req.user.role === 'owner' && pet.owner_user_id === req.user.id;
+    if (!isOwnerOfPet && !CLINIC_ROLES.includes(req.user.role)) return res.status(403).end();
+
+    const photo = await db.prepare('SELECT photo_data, content_type FROM pet_photos WHERE pet_id = ?').get(pet.id);
+    if (!photo) return res.status(404).end();
+
+    res.set('Content-Type', photo.content_type);
+    res.set('Cache-Control', 'private, max-age=3600');
+    res.send(photo.photo_data);
+  }));
+
+  r.delete('/pets/:id/photo', requireAuth, ah(async (req, res) => {
+    const pet = await db.prepare('SELECT id, owner_user_id FROM pets WHERE id = ?').get(req.params.id);
+    if (!pet) return res.status(404).json({ error: 'pet not found' });
+    const isOwnerOfPet = req.user.role === 'owner' && pet.owner_user_id === req.user.id;
+    if (!isOwnerOfPet && !CLINIC_ROLES.includes(req.user.role))
+      return res.status(403).json({ error: 'not permitted' });
+
+    await db.prepare('DELETE FROM pet_photos WHERE pet_id = ?').run(pet.id);
+    await db.prepare('UPDATE pets SET has_photo = false WHERE id = ?').run(pet.id);
+    res.json({ ok: true });
   }));
 
   return r;

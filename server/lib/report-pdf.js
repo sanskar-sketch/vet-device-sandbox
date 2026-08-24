@@ -36,9 +36,12 @@ function scoreBand(score) {
  * @param {object} exam    a serialized exam (see exams-api.js serializeExam) — needs
  *                         .report, .signed_by_name, .signed_at, .vet_notes
  * @param {object} pet     the pets row — needs .name/.species/.breed/.age_years/.weight_kg
+ * @param {Buffer} [photo] the pet's uploaded photo (JPEG/PNG), if any — from
+ *                         pet_photos, fetched by the caller since this
+ *                         module has no DB access of its own
  * @returns {Promise<Buffer>}
  */
-function buildReportPdf(exam, pet) {
+function buildReportPdf(exam, pet, photo) {
   return new Promise((resolve, reject) => {
     const report = exam.report;
     const doc = new PDFDocument({ size: 'A4', margin: 50, bufferPages: true });
@@ -54,13 +57,37 @@ function buildReportPdf(exam, pet) {
     doc.moveTo(50, doc.y).lineTo(545, doc.y).strokeColor(BORDER).stroke();
     doc.moveDown(0.8);
 
+    // Photo (if the owner uploaded one) sits to the right of the name block,
+    // clipped to a rounded square so it reads as a portrait, not a raw
+    // rectangle crop. Text width narrows to leave room for it.
+    const hasPhoto = Boolean(photo);
+    const textWidth = hasPhoto ? 425 : 495;
+    const nameBlockTop = doc.y;
+
+    if (hasPhoto) {
+      const px = 485, py = nameBlockTop, size = 55, radius = 8;
+      try {
+        doc.save();
+        doc.roundedRect(px, py, size, size, radius).clip();
+        doc.image(photo, px, py, { width: size, height: size, cover: [size, size] });
+        doc.restore();
+      } catch (err) {
+        // A corrupt/unsupported image shouldn't take the whole report down —
+        // pdfkit only decodes JPEG/PNG, and upload validation already
+        // restricts to those, but this is cheap insurance either way.
+        console.error('Report PDF: photo embed failed:', err.message);
+        doc.restore();
+      }
+    }
+
     const petLine = [pet.species, pet.breed].filter(Boolean).join(' · ');
-    doc.fillColor(NAVY).font('Helvetica-Bold').fontSize(16).text(pet.name || 'Patient');
+    doc.fillColor(NAVY).font('Helvetica-Bold').fontSize(16).text(pet.name || 'Patient', 50, nameBlockTop, { width: textWidth });
     doc.fillColor(MUTED).font('Helvetica').fontSize(10.5)
       .text([petLine, pet.age_years != null ? `${pet.age_years} yrs` : null, pet.weight_kg != null ? `${pet.weight_kg} kg` : null]
-        .filter(Boolean).join(' · '));
+        .filter(Boolean).join(' · '), 50, doc.y, { width: textWidth });
     doc.moveDown(0.3);
-    doc.text(`Signed by ${exam.signed_by_name || 'your vet'} on ${new Date(exam.signed_at || Date.now()).toLocaleString()}`);
+    doc.text(`Signed by ${exam.signed_by_name || 'your vet'} on ${new Date(exam.signed_at || Date.now()).toLocaleString()}`, 50, doc.y, { width: textWidth });
+    doc.y = Math.max(doc.y, nameBlockTop + 55);
     doc.moveDown(1);
 
     // ── Overall score ───────────────────────────────────────────────────

@@ -15,6 +15,8 @@
  *   fetchLiveNarrative bool   — POST /api/ai-narrative for a fresh summary (staff, pre-save only)
  *   signedBanner      object  — { vetName, signedAt, notes } | null
  *   showRawJson       bool    — default true
+ *   petPhotoUrl       string  — the pet's uploaded photo (e.g. /api/pets/{id}/photo),
+ *                               if any — shown next to the score ring
  *   simplified        bool    — owner-facing view: plain-language labels, no
  *                               clinical jargon, instrument names, confidence
  *                               percentages or weighting maths (default false)
@@ -53,12 +55,19 @@ function scoreColor(score) {
   return score >= 75 ? 'var(--accent-hover)' : score >= 50 ? 'var(--orange)' : 'var(--red)';
 }
 
-function reportHeroHTML(report) {
+function reportHeroHTML(report, opts = {}) {
   const color = scoreColor(report.overall_health_score);
   const circumference = 2 * Math.PI * 42;
   const offset = circumference * (1 - report.overall_health_score / 100);
+  // petPhotoUrl comes from the live pet record (opts, set by the caller),
+  // not from the frozen report JSON — a photo uploaded after this exam was
+  // generated should still show up when the report is viewed later.
+  const photoHTML = opts.petPhotoUrl
+    ? `<img class="report-hero-photo" src="${opts.petPhotoUrl}" alt="${report.patient.name || 'Patient'}">`
+    : '';
   return `
     <div class="report-hero">
+      ${photoHTML}
       <div class="score-ring">
         <svg viewBox="0 0 100 100">
           <circle class="score-ring-bg" cx="50" cy="50" r="42"></circle>
@@ -394,7 +403,7 @@ function renderReport(container, report, opts = {}) {
   const showRawJson = opts.showRawJson !== false;
   container.innerHTML =
     reportActionsHTML() +
-    reportHeroHTML(report) +
+    reportHeroHTML(report, opts) +
     signedBannerHTML(opts.signedBanner) +
     (opts.simplified ? ownerIntroHTML(report) : '') +
     aiSummaryHTML(opts) +

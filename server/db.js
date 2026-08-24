@@ -152,6 +152,21 @@ async function createSchema() {
     ALTER TABLE pets  ADD COLUMN IF NOT EXISTS breed_size    TEXT;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_hash    TEXT;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expires TEXT;
+    ALTER TABLE pets  ADD COLUMN IF NOT EXISTS has_photo     BOOLEAN NOT NULL DEFAULT false;
+  `);
+
+  // Pet photo bytes live in their own table, never in a plain `SELECT * FROM
+  // pets` — that query backs pet lists/search everywhere, and inlining a
+  // multi-hundred-KB image into every one of those rows would bloat every
+  // list/search response. pets.has_photo (above) is the cheap flag the
+  // frontend checks to decide whether to request GET /pets/:id/photo at all.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS pet_photos (
+      pet_id       INTEGER PRIMARY KEY REFERENCES pets(id) ON DELETE CASCADE,
+      photo_data   BYTEA NOT NULL,
+      content_type TEXT NOT NULL,
+      uploaded_at  TEXT NOT NULL
+    );
   `);
 }
 

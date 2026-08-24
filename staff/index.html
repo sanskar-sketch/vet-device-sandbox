@@ -267,6 +267,15 @@
     padding: 8px 12px; font-size: 12.5px; color: var(--text-muted);
   }
 
+  .pet-thumb {
+    border-radius: var(--radius-sm); background: var(--bg); border: 1px solid var(--border);
+    object-fit: cover; flex-shrink: 0;
+  }
+  .pet-thumb-fallback {
+    border-radius: var(--radius-sm); background: var(--bg); border: 1px solid var(--border);
+    flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+  }
+
   .lab-owner-search { position: relative; }
   .owner-selected-badge {
     display: inline-flex; align-items: center; gap: 6px; margin-top: 6px;
@@ -342,6 +351,21 @@ function staffEscapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 }
 
+// Display-only — staff never upload here, they just see whatever photo the
+// owner has already added (js/breed-directory.js/clinical-map.js supply
+// BREED_CUSTOM_ART_KEYS for the legacy-breed-art fallback, same as owner/
+// index.html's own petThumbHTML; duplicated rather than shared since these
+// are two separate pages with their own inline scripts).
+function staffPetThumbHTML(pet, size = 40) {
+  if (pet.has_photo) {
+    return `<img class="pet-thumb" style="width:${size}px;height:${size}px;" src="/api/pets/${pet.id}/photo?t=${Date.now()}" alt="">`;
+  }
+  if (pet.breed_key && BREED_CUSTOM_ART_KEYS.has(pet.breed_key)) {
+    return `<img class="pet-thumb" style="width:${size}px;height:${size}px;object-fit:contain;padding:3px;" src="/assets/breeds/${pet.breed_key}.webp" alt="">`;
+  }
+  return `<div class="pet-thumb-fallback" style="width:${size}px;height:${size}px;font-size:${Math.round(size * 0.45)}px;">🐾</div>`;
+}
+
 /* ── Stepper ─────────────────────────────────────────────────────────────── */
 function renderStepper() {
   const el = document.getElementById('stepper');
@@ -411,9 +435,12 @@ async function searchPatients() {
     const pets = await res.json();
     if (!pets.length) { el.innerHTML = '<span class="text-muted">No patients found.</span>'; return; }
     el.innerHTML = pets.map(p => `
-      <div class="row" data-pet-id="${p.id}" style="justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer;">
-        <span>${p.name} <span class="text-muted">(${p.species}${p.breed ? ' · ' + p.breed : ''}${p.breed_group ? ' · ' + p.breed_group : ''})</span></span>
-        <span class="text-muted" style="font-size:12px;">${p.owner_email || 'no owner on file'} ›</span>
+      <div class="row" data-pet-id="${p.id}" style="justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer;">
+        <span style="display:flex;align-items:center;gap:10px;min-width:0;">
+          ${staffPetThumbHTML(p)}
+          <span>${p.name} <span class="text-muted">(${p.species}${p.breed ? ' · ' + p.breed : ''}${p.breed_group ? ' · ' + p.breed_group : ''})</span></span>
+        </span>
+        <span class="text-muted" style="font-size:12px;flex-shrink:0;">${p.owner_email || 'no owner on file'} ›</span>
       </div>`).join('');
     el.querySelectorAll('[data-pet-id]').forEach(row =>
       row.addEventListener('click', () => openPatientRecord(row.getAttribute('data-pet-id')))
@@ -449,8 +476,13 @@ async function openPatientRecord(petId) {
       : `<div class="oic-row text-muted">No owner on file.</div>`;
 
     listEl.innerHTML = `
-      <div class="panel-title" style="font-size:18px;">${pet.name}</div>
-      <div class="panel-sub">${pet.species}${pet.breed ? ' · ' + pet.breed : ''}${pet.breed_group ? ' · ' + pet.breed_group : ''}${pet.breed_size ? ' · ' + pet.breed_size : ''}${pet.sex ? ' · ' + pet.sex : ''}${pet.age_years != null ? ' · ' + pet.age_years + ' yrs' : ''}${pet.weight_kg != null ? ' · ' + pet.weight_kg + ' kg' : ''}${pet.microchip ? ' · chip ' + pet.microchip : ''}</div>
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:2px;">
+        ${staffPetThumbHTML(pet, 48)}
+        <div>
+          <div class="panel-title" style="font-size:18px;margin-bottom:0;">${pet.name}</div>
+          <div class="panel-sub" style="margin-bottom:0;">${pet.species}${pet.breed ? ' · ' + pet.breed : ''}${pet.breed_group ? ' · ' + pet.breed_group : ''}${pet.breed_size ? ' · ' + pet.breed_size : ''}${pet.sex ? ' · ' + pet.sex : ''}${pet.age_years != null ? ' · ' + pet.age_years + ' yrs' : ''}${pet.weight_kg != null ? ' · ' + pet.weight_kg + ' kg' : ''}${pet.microchip ? ' · chip ' + pet.microchip : ''}</div>
+        </div>
+      </div>
       <div class="owner-info-card">${ownerBlock}</div>
       <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--text-dim);margin-bottom:10px;">
         Report History (${exams.length})
@@ -605,12 +637,15 @@ async function searchOwnerPets() {
     }
     el.innerHTML = pets.map(p => `
       <div class="owner-pet-row" data-owner-pet-id="${p.id}">
-        <div>
-          <div class="owner-pet-name">${staffEscapeHtml(p.name)}</div>
-          <div class="owner-pet-meta">
-            ${staffEscapeHtml(p.species)}${p.breed ? ' · ' + staffEscapeHtml(p.breed) : ''}${p.breed_group ? ' · ' + staffEscapeHtml(p.breed_group) : ''}${p.breed_size ? ' · ' + staffEscapeHtml(p.breed_size) : ''}${p.sex ? ' · ' + staffEscapeHtml(p.sex) : ''}${p.age_years != null ? ' · ' + staffEscapeHtml(p.age_years) + ' yrs' : ''}${p.weight_kg != null ? ' · ' + staffEscapeHtml(p.weight_kg) + ' kg' : ''}
+        <div style="display:flex;align-items:center;gap:10px;min-width:0;">
+          ${staffPetThumbHTML(p)}
+          <div style="min-width:0;">
+            <div class="owner-pet-name">${staffEscapeHtml(p.name)}</div>
+            <div class="owner-pet-meta">
+              ${staffEscapeHtml(p.species)}${p.breed ? ' · ' + staffEscapeHtml(p.breed) : ''}${p.breed_group ? ' · ' + staffEscapeHtml(p.breed_group) : ''}${p.breed_size ? ' · ' + staffEscapeHtml(p.breed_size) : ''}${p.sex ? ' · ' + staffEscapeHtml(p.sex) : ''}${p.age_years != null ? ' · ' + staffEscapeHtml(p.age_years) + ' yrs' : ''}${p.weight_kg != null ? ' · ' + staffEscapeHtml(p.weight_kg) + ' kg' : ''}
+            </div>
+            <div class="owner-pet-meta">${staffEscapeHtml(p.owner_email || 'No owner email on file')}${p.microchip ? ' · chip ' + staffEscapeHtml(p.microchip) : ''}</div>
           </div>
-          <div class="owner-pet-meta">${staffEscapeHtml(p.owner_email || 'No owner email on file')}${p.microchip ? ' · chip ' + staffEscapeHtml(p.microchip) : ''}</div>
         </div>
         <button class="btn btn-secondary" data-select-owner-pet="${p.id}" type="button">Select</button>
       </div>`).join('') + NEW_PET_BUTTON_HTML;

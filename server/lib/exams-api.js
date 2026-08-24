@@ -241,7 +241,7 @@ function router(db) {
     const updatedRow = await db.prepare('SELECT * FROM exams WHERE id = ?').get(row.id);
     const updated = await serializeExam(updatedRow, { db });
 
-    const pet = await db.prepare('SELECT name, species, breed, age_years, weight_kg, owner_email FROM pets WHERE id = ?').get(row.pet_id);
+    const pet = await db.prepare('SELECT id, name, species, breed, age_years, weight_kg, owner_email, has_photo FROM pets WHERE id = ?').get(row.pet_id);
     if (pet && pet.owner_email) {
       const origin = appOrigin(req);
       const score = updated.report.overall_health_score;
@@ -251,7 +251,10 @@ function router(db) {
 
       let attachments;
       try {
-        const pdf = await buildReportPdf(updated, pet);
+        const photoRow = pet.has_photo
+          ? await db.prepare('SELECT photo_data FROM pet_photos WHERE pet_id = ?').get(pet.id)
+          : null;
+        const pdf = await buildReportPdf(updated, pet, photoRow ? photoRow.photo_data : null);
         attachments = [{ filename: `${pet.name || 'pet'}-vitarus-report.pdf`, type: 'application/pdf', content: pdf }];
       } catch (err) {
         console.error('Report PDF build failed:', err.message);
