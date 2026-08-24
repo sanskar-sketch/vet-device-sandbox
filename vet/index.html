@@ -64,6 +64,7 @@
     color: var(--text); padding: 8px 10px; font-size: 13px; font-family: inherit;
     min-height: 60px; resize: vertical;
   }
+  .correction-panel { border-left: 3px solid var(--orange, #e6a23c); }
 
   /* Patient history (signed tab) */
   .pet-history-card {
@@ -149,6 +150,7 @@
         <div class="text-muted" id="sign-status" style="min-height:16px;"></div>
         <button class="btn btn-primary" id="btn-sign" style="align-self:flex-start;">Sign &amp; Release to Owner</button>
       </div>
+      <div class="sign-panel correction-panel" id="correction-panel" style="display:none;"></div>
     </div>
 
   </div><!-- /tab-queue -->
@@ -182,6 +184,7 @@
     <div id="view-history-report" style="display:none;">
       <button class="btn btn-secondary back-btn" id="btn-back-to-pet-exams">← Back to reports</button>
       <div id="history-report-content"></div>
+      <div class="sign-panel correction-panel" id="history-correction-panel" style="display:none;"></div>
     </div>
 
     <!-- Compare two reports -->

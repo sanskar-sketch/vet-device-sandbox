@@ -27,6 +27,66 @@ let historyExams  = [];       // all signed exams (loaded once)
 let activePet     = null;     // pet open in per-patient view
 let checkedIds    = [];       // up to 2 exam IDs for comparison
 
+/* ── Post-sign correction ─────────────────────────────────────────────────
+   A mistake caught after a report has already gone to the owner shouldn't
+   stay frozen forever — but only the vet whose name is on it can reopen it
+   (their signature, their call to revise), and PATCH /override enforces
+   that same rule server-side, this is just the UI gate. Correcting is two
+   steps on purpose: adjust risk level(s) with "Override risk level" (same
+   control used pre-sign, now unlocked for the signer), which stamps
+   corrected_at on the exam, then explicitly "Notify owner of the
+   correction" once ready — so an override made mid-thought doesn't fire an
+   apology email before the vet is done. */
+function canCorrect(exam) {
+  return !!(exam && exam.status === 'signed' && currentUser && exam.signed_by_user_id === currentUser.id);
+}
+
+function correctionPanelHTML(exam) {
+  return `
+    <div class="panel-title" style="font-size:15px;margin-bottom:0;">Correct This Report</div>
+    <p class="text-muted" style="font-size:12px;">
+      Spotted a mistake after signing? Use "Override risk level" above to fix it, then send the owner
+      an apology explaining what changed — they'll get the corrected report again, right away.
+    </p>
+    <textarea id="correction-message" placeholder="What was wrong, in plain language for the owner — e.g. &quot;We initially flagged an elevated heart rate that, on a closer look at the full recording, was within the normal range for your dog's breed.&quot;"></textarea>
+    <div class="text-muted" id="correction-status" style="min-height:16px;"></div>
+    <button type="button" class="btn btn-primary" id="btn-notify-correction" style="align-self:flex-start;" ${exam.corrected_at ? '' : 'disabled'}>
+      Notify owner of the correction
+    </button>`;
+}
+
+function wireCorrectionPanel(panelEl, exam, onCorrected) {
+  if (!canCorrect(exam)) { panelEl.style.display = 'none'; panelEl.innerHTML = ''; return; }
+  panelEl.style.display = 'flex';
+  panelEl.innerHTML = correctionPanelHTML(exam);
+
+  const btn = document.getElementById('btn-notify-correction');
+  const statusEl = document.getElementById('correction-status');
+  btn.addEventListener('click', async () => {
+    const message = document.getElementById('correction-message').value.trim();
+    if (!message) { statusEl.style.color = 'var(--red)'; statusEl.textContent = 'Describe the correction for the owner.'; return; }
+    btn.disabled = true; btn.textContent = 'Sending…';
+    try {
+      const res = await fetch(`/api/exams/${exam.id}/notify-correction`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+        body: JSON.stringify({ message })
+      });
+      if (!res.ok) throw new Error((await res.json()).error || 'could not notify owner');
+      const updated = await res.json();
+      statusEl.style.color = '#3fb950';
+      statusEl.textContent = updated.email_sent
+        ? '✓ Owner notified with the corrected report.'
+        : '✓ Correction saved (owner has no email on file to notify).';
+      btn.textContent = 'Notified ✓';
+      onCorrected(updated);
+    } catch (e) {
+      statusEl.style.color = 'var(--red)';
+      statusEl.textContent = e.message;
+      btn.disabled = false; btn.textContent = 'Notify owner of the correction';
+    }
+  });
+}
+
 /* ── Tab switching ─────────────────────────────────────────────────────── */
 const TABS = ['queue', 'history', 'profile'];
 function showTab(name) {
@@ -104,9 +164,12 @@ function renderExamDetail() {
   const container = document.getElementById('exam-report-content');
   const signPanel = document.getElementById('sign-panel');
   renderReport(container, currentExam.report, {
-    editable: currentExam.status === 'awaiting_review',
+    editable: currentExam.status === 'awaiting_review' || canCorrect(currentExam),
     signedBanner: currentExam.status === 'signed'
       ? { vetName: currentExam.signed_by_name || (currentUser && currentUser.name), signedAt: currentExam.signed_at, notes: currentExam.vet_notes }
+      : null,
+    correctionBanner: currentExam.correction_note
+      ? { note: currentExam.correction_note, correctedAt: currentExam.corrected_at }
       : null,
     aiNarrativeHtml: currentExam.ai_narrative
       ? currentExam.ai_narrative.split('\n').filter(p => p.trim()).map(p => '<p>' + p + '</p>').join('')
@@ -124,6 +187,10 @@ function renderExamDetail() {
   signPanel.style.display = currentExam.status === 'awaiting_review' ? 'flex' : 'none';
   document.getElementById('sign-status').textContent = '';
   document.getElementById('vet-notes').value = '';
+  wireCorrectionPanel(document.getElementById('correction-panel'), currentExam, updated => {
+    currentExam = updated;
+    renderExamDetail();
+  });
 }
 
 document.getElementById('btn-back-to-queue').addEventListener('click', () => {
@@ -325,14 +392,33 @@ function openHistoryReport(id) {
   if (!exam) return;
   const container = document.getElementById('history-report-content');
   renderReport(container, exam.report, {
-    editable: false,
+    editable: canCorrect(exam),
     signedBanner: exam.status === 'signed'
       ? { vetName: exam.signed_by_name || '', signedAt: exam.signed_at, notes: exam.vet_notes }
+      : null,
+    correctionBanner: exam.correction_note
+      ? { note: exam.correction_note, correctedAt: exam.corrected_at }
       : null,
     aiNarrativeHtml: exam.ai_narrative
       ? exam.ai_narrative.split('\n').filter(p => p.trim()).map(p => '<p>' + p + '</p>').join('')
       : null,
-    showRawJson: false
+    showRawJson: false,
+    onOverride: canCorrect(exam) ? async (systemKey, level, reason) => {
+      const r = await fetch('/api/exams/' + exam.id + '/override', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+        body: JSON.stringify({ system_key: systemKey, level, reason })
+      });
+      if (!r.ok) { alert((await r.json()).error || 'Override failed'); return; }
+      const updated = await r.json();
+      const idx = historyExams.findIndex(e => e.id === exam.id);
+      if (idx !== -1) historyExams[idx] = updated;
+      openHistoryReport(id);
+    } : undefined
+  });
+  wireCorrectionPanel(document.getElementById('history-correction-panel'), exam, updated => {
+    const idx = historyExams.findIndex(e => e.id === exam.id);
+    if (idx !== -1) historyExams[idx] = updated;
+    openHistoryReport(id);
   });
   showHistView('view-history-report');
 }

@@ -153,6 +153,8 @@ async function createSchema() {
     ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_hash    TEXT;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expires TEXT;
     ALTER TABLE pets  ADD COLUMN IF NOT EXISTS has_photo     BOOLEAN NOT NULL DEFAULT false;
+    ALTER TABLE exams ADD COLUMN IF NOT EXISTS corrected_at     TEXT;
+    ALTER TABLE exams ADD COLUMN IF NOT EXISTS correction_note  TEXT;
   `);
 
   // Pet photo bytes live in their own table, never in a plain `SELECT * FROM

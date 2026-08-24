@@ -14,6 +14,9 @@
  *   aiNarrativeHtml   string  — pre-rendered narrative HTML to show immediately (already-saved exam)
  *   fetchLiveNarrative bool   — POST /api/ai-narrative for a fresh summary (staff, pre-save only)
  *   signedBanner      object  — { vetName, signedAt, notes } | null
+ *   correctionBanner  object  — { note, correctedAt } | null — shown when the
+ *                               signing vet corrected this report after
+ *                               release (see exams-api.js notify-correction)
  *   showRawJson       bool    — default true
  *   petPhotoUrl       string  — the pet's uploaded photo (e.g. /api/pets/{id}/photo),
  *                               if any — shown next to the score ring
@@ -96,6 +99,17 @@ function signedBannerHTML(signed) {
       <span class="signed-icon">✅</span>
       <span>Signed by <b>${signed.vetName}</b> on ${new Date(signed.signedAt).toLocaleString()}
         ${signed.notes ? `<span class="signed-notes">${signed.notes}</span>` : ''}
+      </span>
+    </div>`;
+}
+
+function correctionBannerHTML(correction) {
+  if (!correction || !correction.note) return '';
+  return `
+    <div class="correction-banner">
+      <span class="correction-icon">✏️</span>
+      <span>This report was corrected on ${new Date(correction.correctedAt).toLocaleDateString()} after signing.
+        <span class="correction-note">${correction.note}</span>
       </span>
     </div>`;
 }
@@ -423,6 +437,7 @@ function renderReport(container, report, opts = {}) {
     reportActionsHTML() +
     reportHeroHTML(report, opts) +
     signedBannerHTML(opts.signedBanner) +
+    correctionBannerHTML(opts.correctionBanner) +
     (opts.simplified ? ownerIntroHTML(report) : '') +
     aiSummaryHTML(opts) +
     reportSystemsHTML(report, opts) +

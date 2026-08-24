@@ -43,6 +43,8 @@ async function serializeExam(row, { db = null } = {}) {
     signed_by_user_id:    row.signed_by_user_id,
     signed_by_name:       null,
     signed_at:            row.signed_at,
+    corrected_at:         row.corrected_at,
+    correction_note:      row.correction_note,
     created_at:           row.created_at,
   };
   if (row.assigned_vet_user_id && db) {
@@ -196,6 +198,12 @@ function router(db) {
   }));
 
   // ── Vet overrides a risk level ───────────────────────────────────────────
+  // Normally only while awaiting_review — but the vet who signed a report
+  // may also reopen and correct it after the fact (a mistake noticed once
+  // it's already gone to the owner shouldn't be permanently frozen). That
+  // path is distinguished in the event log and stamps corrected_at so
+  // notify-correction (below) knows there's an actual change to send.
+  // Any other vet, and this vet on someone else's signature, still gets 409.
   r.patch('/exams/:id/override', requireAuth, requireRole('vet'), ah(async (req, res) => {
     const { system_key, level, reason } = req.body || {};
     if (!system_key || !level || !reason)
@@ -205,7 +213,9 @@ function router(db) {
 
     const row = await db.prepare('SELECT * FROM exams WHERE id = ?').get(req.params.id);
     if (!row) return res.status(404).json({ error: 'exam not found' });
-    if (row.status !== 'awaiting_review')
+
+    const isOwnSignedReport = row.status === 'signed' && row.signed_by_user_id === req.user.id;
+    if (row.status !== 'awaiting_review' && !isOwnSignedReport)
       return res.status(409).json({ error: 'exam is already signed and frozen' });
 
     const report = JSON.parse(row.report_json);
@@ -216,9 +226,16 @@ function router(db) {
     system.level = level;
     system.vet_override = { by_user_id: req.user.id, reason, previous_level: previousLevel, at: nowISO() };
 
-    await db.prepare('UPDATE exams SET report_json = ? WHERE id = ?').run(JSON.stringify(report), row.id);
-    await logEvent(db, row.id, req.user.id, 'risk_overridden',
-      `${system_key}: ${previousLevel} → ${level} — ${reason}`);
+    if (isOwnSignedReport) {
+      await db.prepare('UPDATE exams SET report_json = ?, corrected_at = ? WHERE id = ?')
+        .run(JSON.stringify(report), nowISO(), row.id);
+      await logEvent(db, row.id, req.user.id, 'corrected_after_signing',
+        `${system_key}: ${previousLevel} → ${level} — ${reason}`);
+    } else {
+      await db.prepare('UPDATE exams SET report_json = ? WHERE id = ?').run(JSON.stringify(report), row.id);
+      await logEvent(db, row.id, req.user.id, 'risk_overridden',
+        `${system_key}: ${previousLevel} → ${level} — ${reason}`);
+    }
 
     const updated = await db.prepare('SELECT * FROM exams WHERE id = ?').get(row.id);
     res.json(await serializeExam(updated, { db }));
@@ -276,6 +293,70 @@ function router(db) {
     }
 
     res.json(updated);
+  }));
+
+  // ── Vet notifies the owner of a post-sign correction ─────────────────────
+  // Only the vet whose signature is on the report, and only after they've
+  // actually changed something via /override above (corrected_at set) — an
+  // apology email with nothing behind it would be worse than none at all.
+  // Re-attaches a freshly-built PDF so the owner's copy matches the portal.
+  r.post('/exams/:id/notify-correction', requireAuth, requireRole('vet'), ah(async (req, res) => {
+    const { message, vet_notes } = req.body || {};
+    if (!message || !message.trim())
+      return res.status(400).json({ error: 'message is required — let the owner know what was corrected' });
+
+    const row = await db.prepare('SELECT * FROM exams WHERE id = ?').get(req.params.id);
+    if (!row) return res.status(404).json({ error: 'exam not found' });
+    if (row.status !== 'signed') return res.status(409).json({ error: 'only a signed report can be corrected' });
+    if (row.signed_by_user_id !== req.user.id)
+      return res.status(403).json({ error: 'only the vet who signed this report can send a correction notice' });
+    if (!row.corrected_at)
+      return res.status(409).json({ error: 'make at least one correction (override a risk level above) before notifying the owner' });
+
+    const trimmedNote = message.trim();
+    if (vet_notes !== undefined) {
+      await db.prepare('UPDATE exams SET correction_note = ?, vet_notes = ? WHERE id = ?')
+        .run(trimmedNote, vet_notes || null, row.id);
+    } else {
+      await db.prepare('UPDATE exams SET correction_note = ? WHERE id = ?').run(trimmedNote, row.id);
+    }
+    await logEvent(db, row.id, req.user.id, 'correction_notified', trimmedNote);
+
+    const updatedRow = await db.prepare('SELECT * FROM exams WHERE id = ?').get(row.id);
+    const updated = await serializeExam(updatedRow, { db });
+
+    const pet = await db.prepare('SELECT id, name, species, breed, age_years, weight_kg, owner_email, has_photo FROM pets WHERE id = ?').get(row.pet_id);
+    let emailResult = { sent: false, reason: 'no_owner_email' };
+    if (pet && pet.owner_email) {
+      const origin = appOrigin(req);
+      let attachments;
+      try {
+        const photoRow = pet.has_photo
+          ? await db.prepare('SELECT photo_data FROM pet_photos WHERE pet_id = ?').get(pet.id)
+          : null;
+        const pdf = await buildReportPdf(updated, pet, photoRow ? photoRow.photo_data : null);
+        attachments = [{ filename: `${pet.name || 'pet'}-vitarus-report.pdf`, type: 'application/pdf', content: pdf }];
+      } catch (err) {
+        console.error('Corrected report PDF build failed:', err.message);
+      }
+
+      emailResult = await email.send({
+        to: pet.owner_email,
+        subject: `An update to ${pet.name}'s report`,
+        html: email.shell({
+          origin,
+          title: `A correction to ${pet.name}'s report`,
+          bodyHtml: `<p>Dr. ${req.user.name} wanted to reach out personally about <b>${pet.name}</b>'s recently signed report — something needed a second look, and we'd rather fix it than let it stand.</p>
+                     <p style="background:#fdf2df;border:1px solid #f0dca0;border-radius:8px;padding:12px 16px;color:#6b5000;">${trimmedNote}</p>
+                     <p>We're sorry for the oversight. The corrected report is attached here as a PDF, and your portal has already been updated with the latest version.</p>
+                     ${email.button('View corrected report', `${origin}/owner/index.html`)}
+                     <p style="margin-top:18px;color:#637784;font-size:12.5px;">If anything here still doesn't look right, just reply to this email or reach out to the clinic directly.</p>`
+        }),
+        attachments
+      });
+    }
+
+    res.json({ ...updated, email_sent: emailResult.sent });
   }));
 
   // ── Admin stats ──────────────────────────────────────────────────────────

@@ -521,6 +521,9 @@ function openPatientReport(exam) {
       signedAt: exam.signed_at,
       notes: exam.vet_notes
     } : null,
+    correctionBanner: exam.correction_note
+      ? { note: exam.correction_note, correctedAt: exam.corrected_at }
+      : null,
     aiNarrativeHtml: exam.ai_narrative
       ? exam.ai_narrative.split('\n').filter(p => p.trim()).map(p => `<p>${p}</p>`).join('')
       : null,
