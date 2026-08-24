@@ -60,13 +60,15 @@ function router(db) {
         const origin = appOrigin(req);
         await email.send({
           to: ownerEmail,
-          subject: 'Your Vitarus portal account is ready',
+          subject: `Welcome to Vitarus — ${name} is all set up 🐾`,
           html: email.shell({
             origin,
-            title: 'Your pet is now on Vitarus',
-            bodyHtml: `<p><b>${name}</b> was just added at the clinic under this email address, and a portal account has been created for you — you'll see the full diagnostic report here as soon as a vet signs off.</p>
+            title: 'Welcome to Vitarus!',
+            bodyHtml: `<p><b>${name}</b> just had a visit at the clinic, and we've set up a portal just for you to keep track of their health journey — every exam, every result, all in one place.</p>
+                       <p>As soon as your vet signs off on this visit, the full report will be waiting for you right here, written in plain language so it's easy to follow.</p>
+                       <p>Let's get you in — choose a password to unlock your portal:</p>
                        ${email.button('Set your password', `${origin}/reset-password.html?token=${token}`)}
-                       <p style="margin-top:18px;color:#637784;font-size:12.5px;">This link expires in 7 days. Already have a password? You can also just sign in.</p>`
+                       <p style="margin-top:18px;color:#637784;font-size:12.5px;">This link works for the next 7 days. Already set a password before? You can just sign in instead.</p>`
           })
         });
       }

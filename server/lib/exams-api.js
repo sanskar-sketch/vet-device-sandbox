@@ -97,11 +97,12 @@ function router(db) {
       const origin = appOrigin(req);
       await email.send({
         to: vet.email,
-        subject: `New exam ready for your review — ${pet.name}`,
+        subject: `${pet.name} is ready for your expert eye 👀`,
         html: email.shell({
           origin,
-          title: 'A new exam is awaiting your review',
-          bodyHtml: `<p><b>${pet.name}</b> (${pet.species}${pet.breed ? ', ' + pet.breed : ''}) has a new diagnostic exam ready for your review and signature.</p>
+          title: 'A patient is waiting on you',
+          bodyHtml: `<p><b>${pet.name}</b> (${pet.species}${pet.breed ? ', ' + pet.breed : ''}) just wrapped up a full diagnostic exam, and it's ready for your review.</p>
+                     <p>Their owner is looking forward to hearing from you — take a look whenever you're ready.</p>
                      ${email.button('Review now', `${origin}/vet/index.html`)}`
         })
       });
@@ -244,9 +245,9 @@ function router(db) {
     if (pet && pet.owner_email) {
       const origin = appOrigin(req);
       const score = updated.report.overall_health_score;
-      const tone = score >= 75 ? "The results look good overall"
-        : score >= 50 ? "Most results look good, with a couple of things worth keeping an eye on"
-        : "A few findings are worth following up on";
+      const tone = score >= 75 ? "and the results look good overall"
+        : score >= 50 ? "— most things look good, with a couple worth keeping an eye on"
+        : "— there are a few things worth following up on";
 
       let attachments;
       try {
@@ -258,14 +259,14 @@ function router(db) {
 
       await email.send({
         to: pet.owner_email,
-        subject: `${pet.name}'s report is ready — signed by Dr. ${req.user.name}`,
+        subject: `${pet.name}'s results are in! 🐾`,
         html: email.shell({
           origin,
-          title: 'Your pet\'s report is ready',
-          bodyHtml: `<p>Good news — Dr. ${req.user.name} has reviewed and signed off on <b>${pet.name}</b>'s diagnostic exam.</p>
-                     <p>${tone}. We've attached the full report as a PDF to this email, written in plain language so it's easy to follow — and it's also waiting for you in your Vitarus portal any time.</p>
+          title: `Great news about ${pet.name}!`,
+          bodyHtml: `<p>Dr. ${req.user.name} just finished reviewing and signing off on <b>${pet.name}</b>'s exam ${tone}.</p>
+                     <p>We've packaged the full report as a PDF, right here in this email — written in plain, friendly language, no medical degree required. It's also always waiting for you in your Vitarus portal.</p>
                      ${email.button('View report online', `${origin}/owner/index.html`)}
-                     <p style="margin-top:18px;color:#637784;font-size:12.5px;">If anything in the report is unclear or you have questions, please reach out to your vet directly.</p>`
+                     <p style="margin-top:18px;color:#637784;font-size:12.5px;">Got questions about anything in there? Your vet is always happy to help — just reach out.</p>`
         }),
         attachments
       });

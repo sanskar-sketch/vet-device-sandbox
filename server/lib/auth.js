@@ -100,13 +100,13 @@ function router(db) {
     const resetUrl = `${origin}/reset-password.html?token=${token}`;
     const result = await email.send({
       to: toEmail,
-      subject: 'Reset your Vitarus password',
+      subject: 'Let\'s get you back in',
       html: email.shell({
         origin,
-        title: 'Reset your password',
-        bodyHtml: `<p>Someone requested a password reset for this Vitarus account.</p>
+        title: 'Forgot your password? No worries.',
+        bodyHtml: `<p>We got a request to reset the password on this Vitarus account. Happens to the best of us — click below and you'll be back in in no time.</p>
                    ${email.button('Choose a new password', resetUrl)}
-                   <p style="margin-top:18px;color:#637784;font-size:12.5px;">This link expires in 1 hour. If this wasn't you, no action is needed.</p>`
+                   <p style="margin-top:18px;color:#637784;font-size:12.5px;">This link is good for the next hour. If this wasn't you, no need to do anything — your account is still safe.</p>`
       })
     });
 
