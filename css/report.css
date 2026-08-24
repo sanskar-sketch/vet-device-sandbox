@@ -78,7 +78,6 @@
 .system-card .sc-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .system-card .sc-name { font-weight: 700; font-size: 14px; }
 .system-card .sc-finding { font-size: 12px; color: var(--text-muted); margin-bottom: 10px; line-height: 1.5; }
-.system-card .sc-confidence { font-size: 11px; color: var(--text-dim); }
 
 .sc-reasoning { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 8px; }
 .sc-reasoning summary { cursor: pointer; font-size: 11.5px; font-weight: 600; color: var(--blue-light); list-style: revert; }
@@ -136,16 +135,6 @@
 .risk-badge.risk-low { background: #1a4f2a; color: #3fb950; }
 .risk-badge.risk-moderate { background: #2a2a1a; color: var(--orange); }
 .risk-badge.risk-high { background: #4f1a1a; color: #ff7b72; }
-
-.reco-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
-.reco-list li {
-  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm);
-  padding: 10px 14px; font-size: 13px; display: flex; align-items: center; gap: 8px;
-  transition: border-color .15s, transform .15s;
-}
-.reco-list li:hover { border-color: var(--blue-light); transform: translateX(2px); }
-.reco-list li::before { content: "→"; color: var(--blue-light); }
-
 
 /* ─── Pet-detail view (exam history list for one pet) ───────────────────── */
 .detail-exam-row {
@@ -229,15 +218,105 @@
 .owner-info-card .oic-row { font-size: 13px; margin-bottom: 4px; }
 .owner-info-card .oic-row b { color: var(--text-dim); font-weight: 600; margin-right: 6px; }
 
-/* ── Owner-facing simplified report (renderReport opts.simplified) ────────
-   Sets context before the owner reads any number — this was vet-reviewed,
-   and the score is a wellbeing indicator, not a diagnosis. */
-.owner-intro {
-  background: var(--surface); border: 1px solid var(--border);
-  border-left: 3px solid var(--accent); border-radius: var(--radius);
-  padding: 14px 16px; margin: 16px 0;
-  font-size: 14px; line-height: 1.65; color: var(--text);
+/* ── Owner report (renderReport opts.simplified) ──────────────────────────
+   Leads with priority → bottom line → the explained score → findings →
+   action plan, instead of the score first. See js/report-view.js's
+   ownerReportHTML() for the assembly order. */
+
+.patient-header { display: flex; align-items: center; gap: 16px; margin-bottom: 14px; }
+.ph-photo { width: 56px; height: 56px; border-radius: 14px; object-fit: cover; border: 1px solid var(--border); flex-shrink: 0; }
+.ph-meta h2 { font-size: 20px; margin-bottom: 2px; }
+.ph-meta p { font-size: 13px; color: var(--text-muted); margin: 0; }
+.ph-generated { font-size: 11px !important; color: var(--text-dim) !important; margin-top: 2px !important; }
+.ph-warn-badge { color: var(--orange); font-weight: 700; }
+
+.dataqual-banner {
+  background: rgba(230,162,60,.1); border: 1px solid rgba(230,162,60,.4); border-radius: var(--radius);
+  padding: 12px 16px; margin-bottom: 18px; font-size: 13px; color: var(--text);
 }
-.owner-intro p { margin: 0 0 8px; }
-.owner-intro p:last-child { margin-bottom: 0; }
-.owner-intro-note { font-size: 12.5px; color: var(--text-muted); }
+.dataqual-banner .dq-head { font-weight: 700; color: var(--orange); margin-bottom: 4px; }
+.dataqual-banner p { margin: 0; font-size: 12.5px; line-height: 1.55; }
+
+.priority-banner {
+  border-radius: var(--radius); padding: 18px 22px; margin-bottom: 14px;
+}
+.priority-banner.urgency-today   { background: rgba(255,123,114,.1); border: 1px solid rgba(255,123,114,.4); }
+.priority-banner.urgency-soon    { background: rgba(230,162,60,.1); border: 1px solid rgba(230,162,60,.4); }
+.priority-banner.priority-good   { background: rgba(63,185,80,.08); border: 1px solid rgba(63,185,80,.35); }
+.priority-kicker { font-size: 11px; font-weight: 800; letter-spacing: .5px; margin-bottom: 6px; }
+.urgency-today .priority-kicker { color: #ff7b72; }
+.urgency-soon .priority-kicker { color: var(--orange); }
+.priority-good .priority-kicker { color: #3fb950; }
+.priority-headline { font-size: 20px; font-weight: 800; margin-bottom: 6px; }
+.priority-sub { font-size: 13.5px; color: var(--text); line-height: 1.55; margin: 0; }
+
+.other-findings { margin-bottom: 18px; }
+.of-heading { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; color: var(--text-dim); margin-bottom: 8px; }
+.of-row {
+  display: flex; align-items: baseline; gap: 8px; font-size: 13px; color: var(--text);
+  padding: 8px 0; border-bottom: 1px dashed var(--border); line-height: 1.5;
+}
+.of-row:last-child { border-bottom: none; }
+
+.bottom-line {
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 12px 16px; margin: 0 0 20px; font-size: 13.5px; line-height: 1.6; color: var(--text);
+}
+
+.report-legend {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 14px 16px; margin-bottom: 20px;
+}
+.legend-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; color: var(--text-dim); margin-bottom: 8px; }
+.legend-row { display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px; color: var(--text-muted); padding: 3px 0; }
+.legend-row b { color: var(--text); }
+
+.score-explainer {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 18px 20px; margin-bottom: 20px;
+}
+.score-explainer-head { display: flex; align-items: center; gap: 18px; margin-bottom: 14px; }
+.score-explainer .score-ring { width: 64px; height: 64px; }
+.score-explainer .score-ring-value { font-size: 20px; }
+.se-title { font-size: 14px; font-weight: 700; margin-bottom: 4px; }
+.se-note { font-size: 12px; color: var(--text-muted); line-height: 1.55; margin: 0; }
+.score-contrib-table { display: flex; flex-direction: column; gap: 2px; border-top: 1px solid var(--border); padding-top: 10px; }
+.score-contrib-row { display: flex; align-items: center; gap: 10px; padding: 5px 0; font-size: 12.5px; }
+.scr-label { flex: 1; color: var(--text); }
+.scr-status { font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: 10px; }
+.scr-status.risk-low { background: #1a4f2a; color: #3fb950; }
+.scr-status.risk-moderate { background: #2a2a1a; color: var(--orange); }
+.scr-status.risk-high { background: #4f1a1a; color: #ff7b72; }
+
+.reassuring-box {
+  background: rgba(63,185,80,.06); border: 1px solid rgba(63,185,80,.3); border-radius: var(--radius);
+  padding: 14px 16px; margin-bottom: 20px;
+}
+.reassuring-head { font-weight: 700; color: #3fb950; font-size: 13px; margin-bottom: 8px; }
+.reassuring-row { font-size: 12.5px; color: var(--text); padding: 4px 0; line-height: 1.5; }
+.reassuring-row b { color: var(--text-muted); }
+
+.confidence-badge {
+  display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: .2px;
+  padding: 2px 9px; border-radius: 9px; margin-bottom: 8px;
+}
+.confidence-badge.conf-high { background: rgba(63,185,80,.15); color: #3fb950; }
+.confidence-badge.conf-moderate { background: rgba(230,162,60,.15); color: var(--orange); }
+.confidence-badge.conf-screening { background: var(--surface-2); color: var(--text-dim); }
+
+/* Action plan — grouped by urgency instead of one flat bullet list. */
+.action-group { margin-bottom: 16px; }
+.action-group:last-child { margin-bottom: 0; }
+.ag-head {
+  display: inline-block; font-size: 10.5px; font-weight: 800; letter-spacing: .4px;
+  padding: 3px 10px; border-radius: 8px; margin-bottom: 8px;
+}
+.action-group.urgency-today .ag-head { background: rgba(255,123,114,.15); color: #ff7b72; }
+.action-group.urgency-soon .ag-head { background: rgba(230,162,60,.15); color: var(--orange); }
+.action-group.urgency-routine .ag-head { background: rgba(63,185,80,.15); color: #3fb950; }
+.action-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.action-list li {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 9px 13px; font-size: 13px; display: flex; align-items: center; gap: 8px;
+}
+.action-list li::before { content: "→"; color: var(--blue-light); }

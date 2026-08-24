@@ -10,7 +10,7 @@
 <link rel="stylesheet" href="../css/redesign.css?v=3">
 <link rel="stylesheet" href="../css/experience.css?v=1">
 <link rel="stylesheet" href="../css/app.css?v=21">
-<link rel="stylesheet" href="../css/report.css?v=5">
+<link rel="stylesheet" href="../css/report.css?v=6">
 </head>
 <body>
 
@@ -296,12 +296,12 @@
 <script src="../js/hardware-scan.js?v=3"></script>
 <script src="../js/breed-directory.js?v=1"></script>
 <script src="../js/vet-knowledge-base.js?v=1"></script>
-<script src="../js/ai-analysis.js?v=7"></script>
-<script src="../js/fusion-engine.js?v=6"></script>
+<script src="../js/ai-analysis.js?v=8"></script>
+<script src="../js/fusion-engine.js?v=7"></script>
 <script src="../js/result-renderer.js?v=3"></script>
 <script src="../js/clinical-map.js?v=17"></script>
 <script src="../js/sensor-viz.js?v=4"></script>
-<script src="../js/report-view.js?v=3"></script>
+<script src="../js/report-view.js?v=4"></script>
 
 <script>
 /* ═══════════════════════════════════════════════════════════════════════
@@ -1423,7 +1423,13 @@ async function buildReport() {
         overall_health_score: assessment.overall_health_score,
         systems,
         key_findings: assessment.key_findings,
-        recommendations: assessment.recommendations,
+        // Re-derived from the FINAL (AI-adjusted) systems rather than kept
+        // as the AI's own free-text list — the AI schema still asks for
+        // recommendations (keeps that field meaningful if inspected on its
+        // own), but the report always shows fusion-engine.js's structured,
+        // system+urgency-tagged version so "what happens next" matches
+        // whatever risk levels are actually on screen, AI-scored or not.
+        recommendations: buildRecommendations(systems),
         ai_scored: true
       },
       aiScored: true

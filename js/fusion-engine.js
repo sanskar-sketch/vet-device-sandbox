@@ -53,6 +53,45 @@ function fuseSystem(signals) {
   return { score, level, confidence, modalities: [...new Set(signals.map(s => s.modality))], signals: ranked, reasoning };
 }
 
+/**
+ * Recommended next steps, tagged with which system triggered them and how
+ * urgent they are — `{text, system, urgency}` rather than a bare string, so
+ * the owner-facing "What happens next" can group by urgency (today / soon /
+ * routine) instead of one flat bullet list.
+ *
+ * Re-run on whatever the FINAL per-system levels turn out to be — called
+ * once here from runFusion() for the local/rule-based path, and again by
+ * staff/index.html's buildReport() after merging in the AI-scored levels
+ * (if any), so recommendations always match the levels actually shown,
+ * never a stale AI-generated list decoupled from them.
+ */
+function buildRecommendations(systems) {
+  const items = [];
+  const seen = new Set();
+  const add = (text, system, urgency) => { if (!seen.has(text)) { seen.add(text); items.push({ text, system, urgency }); } };
+  const { musculoskeletal, kidneys, liver, heart, skin, movement } = systems;
+  const tier = sys => sys.level === 'High Risk' ? 'today' : 'soon';
+
+  if (musculoskeletal.level !== "Low Risk") {
+    add("Orthopedic radiographs", 'musculoskeletal', tier(musculoskeletal));
+    add("Joint supplements", 'musculoskeletal', 'soon');
+  }
+  if (musculoskeletal.level === "High Risk") add("Orthopaedic consultation", 'musculoskeletal', 'today');
+  if (kidneys.level !== "Low Risk") {
+    add("Repeat bloods", 'kidneys', tier(kidneys));
+    add("Recommend SDMA repeat", 'kidneys', tier(kidneys));
+  }
+  if (liver.level !== "Low Risk") add("Repeat liver panel in 2–4 weeks", 'liver', 'soon');
+  if (heart.level !== "Low Risk") add("Recommend echocardiography", 'heart', tier(heart));
+  if (heart.level === "High Risk") add("Cardiology referral", 'heart', 'today');
+  if (skin.level !== "Low Risk") add("Dermatology evaluation", 'skin', tier(skin));
+  if (skin.level === "High Risk") add("Biopsy of identified mass(es)", 'skin', 'today');
+  if (movement.level !== "Low Risk") add("Physical rehabilitation / weight management plan", 'movement', tier(movement));
+  if (!items.length) add("Continue routine wellness monitoring — no acute findings", null, 'routine');
+
+  return items;
+}
+
 function runFusion(patient, a) {
   // a = { thermal, ultrasound, cardiac, blood, gait, structural }
 
@@ -118,6 +157,8 @@ function runFusion(patient, a) {
     0, 100
   ));
 
+  const recommendations = buildRecommendations(systems);
+
   const keyFindings = {
     skin: (() => {
       const notes = [];
@@ -140,20 +181,6 @@ function runFusion(patient, a) {
       : `Kidney panel abnormalities on bloodwork${kidneyFlagged.length ? ` (${kidneyFlagged.map(f => f.analyte).join(', ')})` : ''}`,
     movement: `${a.gait.gait_symmetry_pct}% gait symmetry · mobility score ${a.gait.mobility_score}/100`
   };
-
-  const recommendations = [];
-  const add = r => { if (!recommendations.includes(r)) recommendations.push(r); };
-
-  if (musculoskeletal.level !== "Low Risk") { add("Orthopedic radiographs"); add("Joint supplements"); }
-  if (musculoskeletal.level === "High Risk") add("Orthopaedic consultation");
-  if (kidneys.level !== "Low Risk") { add("Repeat bloods"); add("Recommend SDMA repeat"); }
-  if (liver.level !== "Low Risk") add("Repeat liver panel in 2–4 weeks");
-  if (heart.level !== "Low Risk") add("Recommend echocardiography");
-  if (heart.level === "High Risk") add("Cardiology referral");
-  if (skin.level !== "Low Risk") add("Dermatology evaluation");
-  if (skin.level === "High Risk") add("Biopsy of identified mass(es)");
-  if (movement.level !== "Low Risk") add("Physical rehabilitation / weight management plan");
-  if (!recommendations.length) add("Continue routine wellness monitoring — no acute findings");
 
   return {
     patient,

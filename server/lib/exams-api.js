@@ -258,7 +258,7 @@ function router(db) {
     const updatedRow = await db.prepare('SELECT * FROM exams WHERE id = ?').get(row.id);
     const updated = await serializeExam(updatedRow, { db });
 
-    const pet = await db.prepare('SELECT id, name, species, breed, age_years, weight_kg, owner_email, has_photo FROM pets WHERE id = ?').get(row.pet_id);
+    const pet = await db.prepare('SELECT id, name, species, breed, breed_key, age_years, weight_kg, owner_email, has_photo FROM pets WHERE id = ?').get(row.pet_id);
     if (pet && pet.owner_email) {
       const origin = appOrigin(req);
       const score = updated.report.overall_health_score;
@@ -325,7 +325,7 @@ function router(db) {
     const updatedRow = await db.prepare('SELECT * FROM exams WHERE id = ?').get(row.id);
     const updated = await serializeExam(updatedRow, { db });
 
-    const pet = await db.prepare('SELECT id, name, species, breed, age_years, weight_kg, owner_email, has_photo FROM pets WHERE id = ?').get(row.pet_id);
+    const pet = await db.prepare('SELECT id, name, species, breed, breed_key, age_years, weight_kg, owner_email, has_photo FROM pets WHERE id = ?').get(row.pet_id);
     let emailResult = { sent: false, reason: 'no_owner_email' };
     if (pet && pet.owner_email) {
       const origin = appOrigin(req);

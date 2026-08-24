@@ -6,7 +6,11 @@
  * always has — same score ring, same system cards, same reasoning detail.
  * Pure function of the data it's given: nothing here reads page-global
  * state, so any page can drop it in as long as it has js/utils.js loaded
- * (for jsonHighlight) and css/report.css linked.
+ * (for jsonHighlight) and css/report.css linked. The owner-facing
+ * (simplified) path additionally uses js/vet-knowledge-base.js's
+ * getReferenceRanges for the weight/breed data-quality check — guarded so
+ * a page that doesn't load it (the vet portal never renders simplified)
+ * just skips that one check instead of throwing.
  *
  * renderReport(container, report, opts) — opts:
  *   editable          bool    — show a "Override risk level" control per system (vet, pre-sign only)
@@ -17,12 +21,16 @@
  *   correctionBanner  object  — { note, correctedAt } | null — shown when the
  *                               signing vet corrected this report after
  *                               release (see exams-api.js notify-correction)
- *   showRawJson       bool    — default true
+ *   showRawJson       bool    — default true (clinical view only — the owner
+ *                               path never shows it, simplified or not)
  *   petPhotoUrl       string  — the pet's uploaded photo (e.g. /api/pets/{id}/photo),
  *                               if any — shown next to the score ring
- *   simplified        bool    — owner-facing view: plain-language labels, no
- *                               clinical jargon, instrument names, confidence
- *                               percentages or weighting maths (default false)
+ *   simplified        bool    — owner-facing view: leads with the single
+ *                               biggest concern and what to do about it,
+ *                               plain-language labels, structured metric
+ *                               tables instead of prose, confidence badges
+ *                               instead of raw percentages, urgency-grouped
+ *                               action plan (default false — clinical view)
  */
 const SYSTEM_LABELS = { skin: 'Skin', heart: 'Heart', musculoskeletal: 'Musculoskeletal', liver: 'Liver', kidneys: 'Kidneys', movement: 'Movement' };
 
@@ -38,6 +46,21 @@ const LEVEL_LABELS_SIMPLE = {
   'Low Risk': 'Looks healthy',
   'Moderate Risk': 'Worth keeping an eye on',
   'High Risk': 'Needs attention'
+};
+const STATUS_ICON = { 'Low Risk': '🟢', 'Moderate Risk': '🟡', 'High Risk': '🔴' };
+
+/* Recommendations changed shape from plain strings to {text, system,
+   urgency} (see js/fusion-engine.js buildRecommendations) so "what happens
+   next" can be grouped by urgency — but exams signed before that change
+   still have the old string[] frozen in their stored report_json, so every
+   read site normalizes through these two rather than assuming the new shape. */
+function recoText(r) { return typeof r === 'string' ? r : r.text; }
+function recoUrgency(r) { return typeof r === 'string' ? null : r.urgency; }
+
+const URGENCY_META = {
+  today:   { label: 'Today',           icon: '🔴', cls: 'urgency-today' },
+  soon:    { label: 'Follow up soon',  icon: '🟠', cls: 'urgency-soon' },
+  routine: { label: 'Routine',         icon: '🟢', cls: 'urgency-routine' }
 };
 
 function riskClass(level) {
@@ -58,30 +81,114 @@ function scoreColor(score) {
   return score >= 75 ? 'var(--accent-hover)' : score >= 50 ? 'var(--orange)' : 'var(--red)';
 }
 
-function reportHeroHTML(report, opts = {}) {
-  const color = scoreColor(report.overall_health_score);
+/* Confidence % → a plain label instead of a raw number or an internal
+   "grade" — a vet-facing evidence grade (A-D) can leak into an AI-written
+   reasoning string (see server/lib/ai-assessment.js's prompt), and "Grade D"
+   reads to an owner like the pet failed something. This badge is what's
+   shown prominently instead; the raw reasoning text still exists, just
+   moved into the collapsed "Technical details" section. */
+function confidenceBadge(pct) {
+  if (typeof pct !== 'number') return null;
+  if (pct >= 85) return { label: 'High confidence', cls: 'conf-high' };
+  if (pct >= 65) return { label: 'Moderate confidence', cls: 'conf-moderate' };
+  return { label: 'Screening-level evidence', cls: 'conf-screening' };
+}
+
+function systemUrgency(level) {
+  return level === 'High Risk' ? 'today' : level === 'Moderate Risk' ? 'soon' : 'routine';
+}
+
+/** Every scored system, worst-first — the backbone of the owner summary. */
+function rankedSystems(report, labels) {
+  const order = { 'High Risk': 3, 'Moderate Risk': 2, 'Low Risk': 1 };
+  return Object.entries(labels)
+    .map(([key, label]) => ({ key, label, s: report.systems[key] }))
+    .filter(e => e.s)
+    .sort((a, b) => (order[b.s.level] - order[a.s.level]) || (b.s.score - a.s.score));
+}
+
+/**
+ * Deterministic, not AI-generated — a data-quality check belongs on every
+ * report regardless of whether the AI narrative is configured. Reuses the
+ * same species/breed/age-resolved lookup ai-analysis.js scores against, so
+ * "markedly above breed-typical" here always agrees with what actually
+ * happened to the score. Guarded: getReferenceRanges only loads on pages
+ * that include js/vet-knowledge-base.js (owner/staff — the vet portal never
+ * renders simplified, so it never needs this).
+ */
+function dataQualityFlags(report) {
+  const p = report.patient || {};
+  const flags = [];
+  if (p.breedKey && p.weight_kg != null && typeof getReferenceRanges === 'function') {
+    try {
+      const ranges = getReferenceRanges(p.species, p.breedKey, p.age_years, p.weight_kg);
+      if (ranges.weight_status && ranges.weight_status !== 'within breed-typical range' && ranges.expected_weight_range_kg) {
+        flags.push(`Recorded weight <b>${p.weight_kg} kg</b> is ${ranges.weight_status} for ${ranges.breed_label || p.breed || 'the recorded breed'}
+          (typically ${ranges.expected_weight_range_kg[0]}–${ranges.expected_weight_range_kg[1]} kg). Please verify the weight and breed
+          before interpreting weight-dependent findings — this is not corrected automatically.`);
+      }
+    } catch { /* KB not loaded on this page, or a lookup miss — never block rendering over this */ }
+  }
+  return flags;
+}
+
+function scoreRingHTML(score) {
+  const color = scoreColor(score);
   const circumference = 2 * Math.PI * 42;
-  const offset = circumference * (1 - report.overall_health_score / 100);
-  // petPhotoUrl comes from the live pet record (opts, set by the caller),
-  // not from the frozen report JSON — a photo uploaded after this exam was
-  // generated should still show up when the report is viewed later.
+  const offset = circumference * (1 - score / 100);
+  return `
+    <div class="score-ring">
+      <svg viewBox="0 0 100 100">
+        <circle class="score-ring-bg" cx="50" cy="50" r="42"></circle>
+        <circle class="score-ring-fg" cx="50" cy="50" r="42" style="stroke:${color};stroke-dasharray:${circumference};stroke-dashoffset:${offset};"></circle>
+      </svg>
+      <span class="score-ring-value" style="color:${color}">${score}</span>
+    </div>`;
+}
+
+/* Clinical view: score front and center, as staff/vet already expect. */
+function reportHeroHTML(report, opts = {}) {
   const photoHTML = opts.petPhotoUrl
     ? `<img class="report-hero-photo" src="${opts.petPhotoUrl}" alt="${report.patient.name || 'Patient'}">`
     : '';
   return `
     <div class="report-hero">
       ${photoHTML}
-      <div class="score-ring">
-        <svg viewBox="0 0 100 100">
-          <circle class="score-ring-bg" cx="50" cy="50" r="42"></circle>
-          <circle class="score-ring-fg" cx="50" cy="50" r="42" style="stroke:${color};stroke-dasharray:${circumference};stroke-dashoffset:${offset};"></circle>
-        </svg>
-        <span class="score-ring-value" style="color:${color}">${report.overall_health_score}</span>
-      </div>
+      ${scoreRingHTML(report.overall_health_score)}
       <div class="meta">
         <h2>${report.patient.name || 'Patient'} · ${report.patient.species}${report.patient.breed ? ' · ' + report.patient.breed : ''}</h2>
         <p>${report.patient.age_years ?? '?'} yrs · ${report.patient.weight_kg ?? '?'} kg · Overall Health Score · Generated ${new Date(report.generated_at).toLocaleString()}</p>
       </div>
+    </div>`;
+}
+
+/* Owner view: lean identity strip, no score yet — the score gets its own
+   explained section further down (scoreExplainerHTML), after the owner
+   already knows what actually matters. */
+function patientHeaderHTML(report, opts = {}) {
+  const p = report.patient || {};
+  const photoHTML = opts.petPhotoUrl
+    ? `<img class="ph-photo" src="${opts.petPhotoUrl}" alt="${p.name || 'Patient'}">`
+    : '';
+  const flagged = dataQualityFlags(report).length > 0;
+  return `
+    <div class="patient-header">
+      ${photoHTML}
+      <div class="ph-meta">
+        <h2>${p.name || 'Patient'}</h2>
+        <p>${p.species || ''}${p.breed ? ' · ' + p.breed : ''}${p.age_years != null ? ' · ' + p.age_years + ' yrs' : ''}${p.weight_kg != null ? ' · ' + p.weight_kg + ' kg' : ''}${flagged ? ' <span class="ph-warn-badge">⚠️ verify info below</span>' : ''}</p>
+        <p class="ph-generated">Generated ${new Date(report.generated_at).toLocaleString()}</p>
+      </div>
+    </div>`;
+}
+
+function dataQualityHTML(report) {
+  const flags = dataQualityFlags(report);
+  if (!flags.length) return '';
+  return `
+    <div class="dataqual-banner">
+      <div class="dq-head">⚠️ Please verify patient information</div>
+      ${flags.map(f => `<p>${f}</p>`).join('')}
     </div>`;
 }
 
@@ -97,7 +204,7 @@ function signedBannerHTML(signed) {
   return `
     <div class="signed-banner">
       <span class="signed-icon">✅</span>
-      <span>Signed by <b>${signed.vetName}</b> on ${new Date(signed.signedAt).toLocaleString()}
+      <span>Prepared by the Vitarus platform · reviewed and released by <b>${signed.vetName}</b> on ${new Date(signed.signedAt).toLocaleString()}
         ${signed.notes ? `<span class="signed-notes">${signed.notes}</span>` : ''}
       </span>
     </div>`;
@@ -111,6 +218,114 @@ function correctionBannerHTML(correction) {
       <span>This report was corrected on ${new Date(correction.correctedAt).toLocaleDateString()} after signing.
         <span class="correction-note">${correction.note}</span>
       </span>
+    </div>`;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Owner summary — leads with the single biggest concern (or a clean bill
+   of health), not the score. Deliberately shows only the headline finding
+   (report.key_findings), never the raw AI reasoning text here — that can
+   contain clinical shorthand (evidence grades, instrument thresholds) that
+   belongs in each system's collapsed "Technical details", not the first
+   thing an owner reads.
+   ═══════════════════════════════════════════════════════════════════════ */
+function ownerPriorityHTML(report) {
+  const ranked = rankedSystems(report, SYSTEM_LABELS_SIMPLE);
+  const top = ranked[0];
+
+  if (!top || top.s.level === 'Low Risk') {
+    return `
+      <div class="priority-banner priority-good">
+        <div class="priority-kicker">🟢 OVERALL</div>
+        <div class="priority-headline">${report.patient.name || 'Your pet'}'s results look good overall</div>
+        <p class="priority-sub">No system needed follow-up this visit — see the findings below for the full picture.</p>
+      </div>`;
+  }
+
+  const urgency = systemUrgency(top.s.level);
+  const meta = URGENCY_META[urgency];
+  const others = ranked.filter(e => e.key !== top.key && e.s.level !== 'Low Risk');
+
+  return `
+    <div class="priority-banner ${meta.cls}">
+      <div class="priority-kicker">${meta.icon} PRIORITY — ${meta.label.toUpperCase()}</div>
+      <div class="priority-headline">${top.label}</div>
+      <p class="priority-sub">${report.key_findings[top.key] || ''}</p>
+    </div>
+    ${others.length ? `
+      <div class="other-findings">
+        <div class="of-heading">Other findings</div>
+        ${others.map(e => {
+          const om = URGENCY_META[systemUrgency(e.s.level)];
+          return `
+            <div class="of-row">
+              <span class="of-icon">${om.icon}</span>
+              <div><b>${e.label}</b> — ${report.key_findings[e.key] || ''}</div>
+            </div>`;
+        }).join('')}
+      </div>` : ''}`;
+}
+
+function bottomLineHTML(report) {
+  const ranked = rankedSystems(report, SYSTEM_LABELS_SIMPLE);
+  const top = ranked[0];
+  if (!top || top.s.level === 'Low Risk') {
+    return `<p class="bottom-line"><b>Bottom line:</b> No significant concerns were identified this visit.</p>`;
+  }
+  const concerns = ranked.filter(e => e.s.level !== 'Low Risk');
+  const reassuring = ranked.filter(e => e.s.level === 'Low Risk');
+  const otherCount = concerns.length - 1;
+  return `<p class="bottom-line"><b>Bottom line:</b> The most important finding is ${top.label.toLowerCase()}
+    (${LEVEL_LABELS_SIMPLE[top.s.level].toLowerCase()}).
+    ${otherCount > 0 ? `${otherCount} other area${otherCount > 1 ? 's' : ''} also need${otherCount === 1 ? 's' : ''} follow-up, ` : ''}
+    ${reassuring.length ? `while ${reassuring.length} area${reassuring.length > 1 ? 's look' : ' looks'} reassuring.` : ''}</p>`;
+}
+
+function legendHTML() {
+  return `
+    <div class="report-legend">
+      <div class="legend-title">How to read this report</div>
+      <div class="legend-row"><span>🟢</span><div><b>Looks healthy</b> — no significant abnormality identified.</div></div>
+      <div class="legend-row"><span>🟡</span><div><b>Worth keeping an eye on</b> — a finding was detected that may need monitoring or confirmation.</div></div>
+      <div class="legend-row"><span>🔴</span><div><b>Needs attention</b> — a significant abnormality was identified and veterinary follow-up is recommended.</div></div>
+    </div>`;
+}
+
+/* De-emphasized, explained score: the ring is the same one the clinical
+   view uses, but it now arrives after the owner already knows what matters,
+   with an explicit "not a diagnosis" line and a per-system breakdown of
+   what actually drove the number — answering "why is it 42?" instead of
+   just asserting it. */
+function scoreExplainerHTML(report) {
+  const ranked = rankedSystems(report, SYSTEM_LABELS_SIMPLE);
+  const rows = ranked.map(e => `
+    <div class="score-contrib-row">
+      <span class="scr-icon">${STATUS_ICON[e.s.level]}</span>
+      <span class="scr-label">${e.label}</span>
+      <span class="scr-status ${riskClass(e.s.level)}">${LEVEL_LABELS_SIMPLE[e.s.level]}</span>
+    </div>`).join('');
+  return `
+    <div class="score-explainer">
+      <div class="score-explainer-head">
+        ${scoreRingHTML(report.overall_health_score)}
+        <div class="se-text">
+          <div class="se-title">Vitarus Screening Score</div>
+          <p class="se-note">A composite screening indicator based on the available measurements. It does not represent
+            a probability of disease or a veterinary diagnosis. If anything here is unclear or worrying, your vet is the
+            best person to ask.</p>
+        </div>
+      </div>
+      <div class="score-contrib-table">${rows}</div>
+    </div>`;
+}
+
+function reassuringHTML(report) {
+  const ranked = rankedSystems(report, SYSTEM_LABELS_SIMPLE).filter(e => e.s.level === 'Low Risk');
+  if (!ranked.length) return '';
+  return `
+    <div class="reassuring-box">
+      <div class="reassuring-head">🟢 What's reassuring</div>
+      ${ranked.map(e => `<div class="reassuring-row"><b>${e.label}:</b> ${report.key_findings[e.key] || ''}</div>`).join('')}
     </div>`;
 }
 
@@ -136,7 +351,9 @@ function overrideBlockHTML(key, system, editable) {
    each one was flagged (js/vet-knowledge-base.js's species/breed/age-aware
    getReferenceRanges, via js/ai-analysis.js). Pulled from report.modality_data
    (js/fusion-engine.js's runFusion() passes the raw analyze* output straight
-   through under that key) rather than re-deriving anything here.
+   through under that key) rather than re-deriving anything here. Promoted
+   to always-visible (not just inside a collapsed technical section) for
+   both clinical and owner views — numbers as scannable rows, not prose.
 
    Deliberately limited to values with a real, KB-backed (or published
    veterinary-standard, e.g. the Levine murmur scale) reference to compare
@@ -172,52 +389,72 @@ function statRowHTML({ label, value, unit = '', lo, hi, rangeText }) {
     </div>`;
 }
 
-function bloodRowsHTML(md, names) {
+// A handful of raw lab/instrument abbreviations get a plain-language
+// parenthetical in owner (simple) mode — kept, not removed, since the
+// clinical term is still useful to have in front of a vet later.
+const PLAIN_STAT_LABELS = {
+  'QTc interval': 'QTc interval (electrical timing of the heartbeat)',
+  'SpO₂': 'Blood oxygen (SpO₂)',
+  'BUN': 'BUN (kidney-related blood marker)',
+  'ALT': 'ALT (liver enzyme)',
+  'ALP': 'ALP (liver enzyme)',
+  'Creatinine': 'Creatinine (kidney marker)',
+  'Total Bilirubin': 'Bilirubin (liver marker)'
+};
+function lbl(clinical, simple) {
+  return simple && PLAIN_STAT_LABELS[clinical] ? PLAIN_STAT_LABELS[clinical] : clinical;
+}
+
+function bloodRowsHTML(md, names, simple) {
   if (!md.blood || !md.blood.analytes) return '';
   return names.map(name => {
     const a = md.blood.analytes.find(x => x.name === name);
     if (!a) return '';
     const [lo, hi] = a.reference_range || [];
-    return statRowHTML({ label: a.name, value: a.value, unit: a.unit, lo, hi });
+    return statRowHTML({ label: lbl(a.name, simple), value: a.value, unit: a.unit, lo, hi });
   }).join('');
 }
 
 const SYSTEM_STAT_ROWS = {
-  skin: md => (md.thermal ? [
+  skin: (md, simple) => (md.thermal ? [
     statRowHTML({ label: 'Max limb thermal asymmetry', value: md.thermal.thermal_asymmetry_map?.max_delta_c, unit: '°C', hi: md.thermal.thermal_asymmetry_map?.tolerance_c }),
     statRowHTML({ label: 'Core temperature (thermal)', value: md.thermal.heat_index_c, unit: '°C', lo: md.thermal.core_temp_normal_range_c?.[0], hi: md.thermal.core_temp_normal_range_c?.[1] })
   ].join('') : ''),
-  heart: md => (md.cardiac ? [
+  heart: (md, simple) => (md.cardiac ? [
     statRowHTML({ label: 'Heart rate', value: md.cardiac.heart_rate_bpm, unit: 'bpm', lo: md.cardiac.heart_rate_normal_range_bpm?.[0], hi: md.cardiac.heart_rate_normal_range_bpm?.[1] }),
-    statRowHTML({ label: 'QTc interval', value: md.cardiac.qtc_interval_ms, unit: 'ms', hi: md.cardiac.qtc_interval_normal_max_ms }),
-    statRowHTML({ label: 'SpO₂', value: md.cardiac.spo2_pct, unit: '%', lo: md.cardiac.spo2_normal_min_pct }),
+    statRowHTML({ label: lbl('QTc interval', simple), value: md.cardiac.qtc_interval_ms, unit: 'ms', hi: md.cardiac.qtc_interval_normal_max_ms }),
+    statRowHTML({ label: lbl('SpO₂', simple), value: md.cardiac.spo2_pct, unit: '%', lo: md.cardiac.spo2_normal_min_pct }),
     statRowHTML({ label: 'Systolic blood pressure', value: md.cardiac.blood_pressure?.systolic_mmhg, unit: 'mmHg', hi: md.cardiac.blood_pressure?.systolic_normal_max_mmhg,
       rangeText: md.cardiac.blood_pressure?.systolic_normal_max_mmhg != null ? `≤ ${fmtStatNum(md.cardiac.blood_pressure.systolic_normal_max_mmhg)} mmHg (ACVIM: ${(md.cardiac.blood_pressure.acvim_stage || '').replace(/_/g, ' ')})` : undefined }),
     statRowHTML({ label: 'Murmur grade', value: md.cardiac.murmur_grade, rangeText: 'None (Levine I–VI scale)' })
   ].join('') : ''),
-  musculoskeletal: md => [
+  musculoskeletal: (md, simple) => [
     md.gait ? statRowHTML({ label: 'Lameness grade', value: md.gait.lameness_grade, rangeText: md.gait.lameness_scale }) : '',
     md.thermal ? statRowHTML({ label: 'Max limb thermal asymmetry', value: md.thermal.thermal_asymmetry_map?.max_delta_c, unit: '°C', hi: md.thermal.thermal_asymmetry_map?.tolerance_c }) : '',
     md.structural ? statRowHTML({ label: 'Body condition score', value: md.structural.body_condition_score, rangeText: md.structural.body_condition_scale }) : ''
   ].join(''),
-  liver: md => bloodRowsHTML(md, ['ALT', 'ALP', 'Total Bilirubin']),
-  kidneys: md => bloodRowsHTML(md, ['BUN', 'Creatinine']),
-  movement: md => (md.gait ? [
+  liver: (md, simple) => bloodRowsHTML(md, ['ALT', 'ALP', 'Total Bilirubin'], simple),
+  kidneys: (md, simple) => bloodRowsHTML(md, ['BUN', 'Creatinine'], simple),
+  movement: (md, simple) => (md.gait ? [
     statRowHTML({ label: 'Gait symmetry', value: md.gait.gait_symmetry_pct, unit: '%', lo: md.gait.gait_symmetry_normal_min_pct })
   ].join('') : '')
 };
 
-function machineStatsHTML(key, report) {
+function machineStatsHTML(key, report, simple) {
   const md = report.modality_data;
   if (!md) return '';
   const build = SYSTEM_STAT_ROWS[key];
-  const rows = build ? build(md) : '';
+  const rows = build ? build(md, simple) : '';
   if (!rows.trim()) return '';
-  return `
-    <div class="sc-section-label">Machine Readings</div>
-    <div class="stat-table">${rows}</div>`;
+  return `<div class="stat-table">${rows}</div>`;
 }
 
+/* Per-system card, reordered per the redesign: status → what this means
+   (the one-line key finding) → measured values → confidence → collapsed
+   technical detail (screened-for, evidence trail, full reasoning text —
+   which can legitimately include clinical shorthand not meant for the
+   headline). Same structure for clinical and owner views; only the labels,
+   confidence display and how much sits inside "Technical details" differ. */
 function reportSystemsHTML(report, opts) {
   const simple = !!opts.simplified;
   const labels = simple ? SYSTEM_LABELS_SIMPLE : SYSTEM_LABELS;
@@ -225,23 +462,20 @@ function reportSystemsHTML(report, opts) {
     const s = report.systems[key];
     if (!s) return '';
 
-    // Owners get the headline finding and the plain-language explanation.
-    // Instrument names, confidence percentages and per-signal weighting are
-    // review tools for the clinic, not decision-useful for an owner — they
-    // mainly invite misreading a number out of context.
-    const detail = simple
+    const conf = confidenceBadge(s.confidence);
+    const stats = machineStatsHTML(key, report, simple);
+
+    const technical = simple
       ? `<details class="sc-reasoning">
-          <summary>What we looked at</summary>
+          <summary>Technical details</summary>
           <p class="sc-why-text">${s.reasoning}</p>
         </details>`
-      : `<div class="sc-confidence">Confidence ${s.confidence}% · ${s.modalities.join(', ')}</div>
-        <details class="sc-reasoning">
-          <summary>Clinical reasoning</summary>
+      : `<details class="sc-reasoning">
+          <summary>Technical details</summary>
           <div class="sc-section-label">Screened for</div>
           <ul class="result-bullets">${(s.screened_for || []).map(c => `<li>${c}</li>`).join('')}</ul>
           <div class="sc-section-label">Evidence</div>
           <ul class="result-bullets">${s.signals.map(sig => `<li>${sig.modality} — ${sig.note} <b>(${sig.contributionPct}% weight)</b></li>`).join('')}</ul>
-          ${machineStatsHTML(key, report)}
           <div class="sc-section-label">Why this score</div>
           <p class="sc-why-text">${s.reasoning}</p>
         </details>`;
@@ -253,29 +487,42 @@ function reportSystemsHTML(report, opts) {
           <span class="risk-badge ${riskClass(s.level)}">${levelLabel(s.level, simple)}</span>
         </div>
         <div class="sc-finding">${report.key_findings[key] || ''}</div>
-        ${detail}
+        ${stats}
+        ${conf ? `<div class="confidence-badge ${conf.cls}">${conf.label}</div>` : ''}
+        ${technical}
         ${overrideBlockHTML(key, s, opts.editable)}
       </div>`;
   }).join('') + `</div>`;
 }
 
-/* Sets expectations before the owner reads any number: this was reviewed by
-   a real vet, and the score is a screening summary rather than a diagnosis. */
-function ownerIntroHTML(report) {
-  return `
-    <div class="owner-intro">
-      <p><b>${scoreBand(report.overall_health_score)}</b> This is a summary of ${report.patient.name || 'your pet'}'s
-      check-up, reviewed and signed off by your vet. Each card below covers one part of
-      your pet's health.</p>
-      <p class="owner-intro-note">The score is a general wellbeing indicator out of 100 — it is not a diagnosis.
-      If anything here is unclear or worrying, your vet is the best person to ask.</p>
-    </div>`;
-}
+/* Urgency-grouped action plan — replaces a single flat bullet list with
+   Today / Follow up soon / Routine sections, so the reader doesn't have to
+   guess which of ten bullets is actually time-sensitive. Old exams whose
+   recommendations are still plain strings (pre-urgency-tagging) fall back
+   to the "soon" bucket — a safe middle default, never silently dropped. */
+function actionPlanHTML(report, opts = {}) {
+  const recos = report.recommendations || [];
+  const groups = { today: [], soon: [], routine: [] };
+  recos.forEach(r => {
+    const u = recoUrgency(r) || 'soon';
+    (groups[u] || groups.soon).push(recoText(r));
+  });
 
-function reportRecosHTML(report, opts = {}) {
+  const section = (key, meta) => {
+    const items = groups[key];
+    if (!items.length) return '';
+    return `
+      <div class="action-group ${meta.cls}">
+        <div class="ag-head">${meta.icon} ${meta.label.toUpperCase()}</div>
+        <ul class="action-list">${items.map(t => `<li>${t}</li>`).join('')}</ul>
+      </div>`;
+  };
+
   return `
     <div class="card-header" style="background:none;border:none;padding:0 0 10px;">${opts.simplified ? 'What happens next' : 'Recommendations'}</div>
-    <ul class="reco-list">${report.recommendations.map(r => `<li>${r}</li>`).join('')}</ul>`;
+    ${section('today', URGENCY_META.today)}
+    ${section('soon', URGENCY_META.soon)}
+    ${section('routine', URGENCY_META.routine)}`;
 }
 
 function reportRawJsonHTML(report) {
@@ -288,10 +535,21 @@ function reportRawJsonHTML(report) {
 
 function aiSummaryHTML(opts) {
   if (opts.aiNarrativeHtml) {
+    const body = `<div class="ai-summary-body" id="ai-summary-body">${opts.aiNarrativeHtml}</div>`;
+    // Owner view: this is the vet-oriented technical narrative (can mention
+    // instrument thresholds/evidence grades) — collapsed and clearly
+    // labeled as optional, not the loud second thing the owner reads.
+    if (opts.simplified) {
+      return `
+        <details class="ai-summary-card ai-live" id="ai-summary-card">
+          <summary class="ai-summary-head"><span class="ai-badge">✦ AI</span> Vet's technical notes (optional)</summary>
+          ${body}
+        </details>`;
+    }
     return `
       <div class="ai-summary-card ai-live" id="ai-summary-card">
         <div class="ai-summary-head"><span class="ai-badge">✦ AI</span> Clinical Summary</div>
-        <div class="ai-summary-body" id="ai-summary-body">${opts.aiNarrativeHtml}</div>
+        ${body}
       </div>`;
   }
   if (opts.fetchLiveNarrative) {
@@ -368,10 +626,20 @@ function wireOverrideControls(container, report, opts) {
    every role already sees on screen, so an owner's PDF is always the
    vet-signed version (they never have access to an unsigned exam), while
    staff/vet/admin can export any report state they can view, draft or
-   signed, with full clinical detail either way.
+   signed, with full clinical detail either way. Mirrors the same
+   priority-first structure as the web view for owners (simplified:true);
+   server/lib/report-pdf.js is the equivalent for the emailed copy.
    ═══════════════════════════════════════════════════════════════════════ */
 function pdfRiskClass(level) {
   return level === 'Low Risk' ? 'risk-low' : level === 'Moderate Risk' ? 'risk-moderate' : 'risk-high';
+}
+
+function pdfStatRowsHTML(key, report, simplified) {
+  const md = report.modality_data;
+  if (!md) return '';
+  const build = SYSTEM_STAT_ROWS[key];
+  const rows = build ? build(md, simplified) : '';
+  return rows; // same .stat-row markup as the web view — styled by the PDF's own <style> block below
 }
 
 function pdfSystemBlock(key, label, report, simplified) {
@@ -380,15 +648,14 @@ function pdfSystemBlock(key, label, report, simplified) {
   const override = s.vet_override
     ? `<div class="pdf-override-note"><b>Vet override:</b> ${s.vet_override.previous_level} → ${s.level} — ${s.vet_override.reason}</div>`
     : '';
-  // Owner-facing PDF mirrors the mailed report (server/lib/report-pdf.js):
-  // plain-language risk label, headline finding + reasoning only — no
-  // instrument names, confidence percentages or per-signal weighting.
+  const conf = confidenceBadge(s.confidence);
+  const stats = pdfStatRowsHTML(key, report, simplified);
   const detail = simplified
     ? `<div class="pdf-subhead">What we looked at</div>
        <p class="pdf-reasoning">${s.reasoning}</p>`
     : `<div class="pdf-subhead">Screened for</div>
        <ul class="pdf-list">${(s.screened_for || []).map(c => `<li>${c}</li>`).join('') || '<li>—</li>'}</ul>
-       <div class="pdf-subhead">Evidence (confidence ${s.confidence}% · ${s.modalities.join(', ')})</div>
+       <div class="pdf-subhead">Evidence</div>
        <ul class="pdf-list">${s.signals.map(sig => `<li>${sig.modality} — ${sig.note} (${sig.contributionPct}% weight)</li>`).join('')}</ul>
        <div class="pdf-subhead">Clinical reasoning</div>
        <p class="pdf-reasoning">${s.reasoning}</p>`;
@@ -399,9 +666,51 @@ function pdfSystemBlock(key, label, report, simplified) {
         <span class="pdf-risk-badge">${levelLabel(s.level, simplified)}</span>
       </div>
       <div class="pdf-finding">${report.key_findings[key] || ''}</div>
+      ${stats ? `<div class="pdf-stat-table">${stats}</div>` : ''}
+      ${conf ? `<div class="pdf-conf-badge pdf-${conf.cls}">${conf.label}</div>` : ''}
       ${detail}
       ${override}
     </div>`;
+}
+
+function pdfActionPlanHTML(report) {
+  const groups = { today: [], soon: [], routine: [] };
+  (report.recommendations || []).forEach(r => {
+    const u = recoUrgency(r) || 'soon';
+    (groups[u] || groups.soon).push(recoText(r));
+  });
+  const section = (key, meta) => groups[key].length ? `
+    <div class="pdf-action-group">
+      <div class="pdf-action-head pdf-${meta.cls}">${meta.icon} ${meta.label.toUpperCase()}</div>
+      <ul class="pdf-recos">${groups[key].map(t => `<li>${t}</li>`).join('')}</ul>
+    </div>` : '';
+  return section('today', URGENCY_META.today) + section('soon', URGENCY_META.soon) + section('routine', URGENCY_META.routine);
+}
+
+function pdfPriorityHTML(report) {
+  const ranked = rankedSystems(report, SYSTEM_LABELS_SIMPLE);
+  const top = ranked[0];
+  if (!top || top.s.level === 'Low Risk') {
+    return `<div class="pdf-priority pdf-priority-good">🟢 <b>${report.patient?.name || 'Your pet'}'s results look good overall.</b> No system needed follow-up this visit.</div>`;
+  }
+  const meta = URGENCY_META[systemUrgency(top.s.level)];
+  const others = ranked.filter(e => e.key !== top.key && e.s.level !== 'Low Risk');
+  return `
+    <div class="pdf-priority pdf-${meta.cls}">
+      <div class="pdf-priority-kicker">${meta.icon} PRIORITY — ${meta.label.toUpperCase()}</div>
+      <div class="pdf-priority-headline">${top.label}</div>
+      <p>${report.key_findings[top.key] || ''}</p>
+    </div>
+    ${others.length ? `<div class="pdf-other-findings">${others.map(e => {
+      const om = URGENCY_META[systemUrgency(e.s.level)];
+      return `<div class="pdf-of-row">${om.icon} <b>${e.label}:</b> ${report.key_findings[e.key] || ''}</div>`;
+    }).join('')}</div>` : ''}`;
+}
+
+function pdfDataQualityHTML(report) {
+  const flags = dataQualityFlags(report);
+  if (!flags.length) return '';
+  return `<div class="pdf-dataqual">⚠️ <b>Please verify patient information</b>${flags.map(f => `<p>${f}</p>`).join('')}</div>`;
 }
 
 function buildReportPdfHtml(report, opts) {
@@ -411,24 +720,33 @@ function buildReportPdfHtml(report, opts) {
   const signed = opts.signedBanner;
   const signedBlock = signed ? `
     <div class="pdf-signed-banner">
-      ✅ Signed by <b>${signed.vetName}</b> on ${new Date(signed.signedAt).toLocaleString()}
+      ✅ Prepared by the Vitarus platform · reviewed and released by <b>${signed.vetName}</b> on ${new Date(signed.signedAt).toLocaleString()}
       ${signed.notes ? `<div style="margin-top:4px;">${signed.notes}</div>` : ''}
     </div>` : `
     <div class="pdf-draft-banner">This copy is a pre-review draft — it has not yet been signed by a vet.</div>`;
   const aiBlock = opts.aiNarrativeHtml ? `
-    <div class="pdf-section-title">${simplified ? 'Summary' : 'AI Clinical Summary'}</div>
+    <div class="pdf-section-title">${simplified ? "Vet's technical notes (optional)" : 'AI Clinical Summary'}</div>
     <div class="pdf-ai">${opts.aiNarrativeHtml}</div>` : '';
-  // Same disclaimer wording as the mailed PDF (server/lib/report-pdf.js) —
-  // sets expectations before the owner reads any number.
-  const disclaimerBlock = simplified ? `
-    <p style="font-size:11px;color:#8798a1;margin:-10px 0 20px;">This is a wellbeing indicator, not a diagnosis.
-      If anything here is unclear or worrying, your vet is the best person to ask.</p>` : '';
   const photoBlock = opts.petPhotoUrl
     ? `<img src="${opts.petPhotoUrl}" alt="" style="width:64px;height:64px;border-radius:10px;object-fit:cover;border:1px solid #d8e5e2;margin-left:auto;">` : '';
 
   const labels = simplified ? SYSTEM_LABELS_SIMPLE : SYSTEM_LABELS;
   const systems = Object.entries(labels).map(([key, label]) => pdfSystemBlock(key, label, report, simplified)).join('');
-  const recos = (report.recommendations || []).map(r => `<li>${r}</li>`).join('');
+
+  const summaryBlock = simplified ? `
+    ${pdfDataQualityHTML(report)}
+    ${pdfPriorityHTML(report)}
+    <p class="pdf-bottom-line"><b>Bottom line:</b> ${bottomLineText(report)}</p>
+    <div class="pdf-score-block">
+      <div class="pdf-score-value">${report.overall_health_score}</div>
+      <div class="pdf-score-label">Vitarus Screening Score<br>/100</div>
+    </div>
+    <p style="font-size:11px;color:#8798a1;margin:-10px 0 20px;">A composite screening indicator based on the available
+      measurements. It does not represent a probability of disease or a veterinary diagnosis.</p>` : `
+    <div class="pdf-score-block">
+      <div class="pdf-score-value">${report.overall_health_score}</div>
+      <div class="pdf-score-label">Overall Health Score<br>/100</div>
+    </div>`;
 
   return `<!doctype html>
 <html><head><meta charset="utf-8">
@@ -441,7 +759,19 @@ function buildReportPdfHtml(report, opts) {
   .pdf-brand-name { font-size: 22px; font-weight: 800; color: #0a2f4e; letter-spacing: .3px; }
   .pdf-brand-sub { font-size: 11px; color: #6b7686; letter-spacing: .5px; text-transform: uppercase; margin-top: 2px; }
   .pdf-meta-row { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px 24px; margin-bottom: 20px; font-size: 12.5px; color: #40495a; }
-  .pdf-score-block { display: flex; align-items: center; gap: 22px; background: #f3f7f9; border: 1px solid #dde3e8; border-radius: 10px; padding: 18px 22px; margin-bottom: 22px; }
+  .pdf-dataqual { background: #fdf2df; border: 1px solid #f0dca0; border-radius: 8px; padding: 12px 16px; margin-bottom: 18px; font-size: 12.5px; color: #6b5000; }
+  .pdf-dataqual p { margin: 4px 0 0; }
+  .pdf-priority { border-radius: 10px; padding: 16px 20px; margin-bottom: 14px; page-break-inside: avoid; }
+  .pdf-priority-today, .pdf-urgency-today { background: #fbe8e6; border: 1px solid #f0b8b3; }
+  .pdf-priority-soon, .pdf-urgency-soon { background: #fdf2df; border: 1px solid #f0dca0; }
+  .pdf-priority-good, .pdf-urgency-routine { background: #eafaf3; border: 1px solid #b7e4cc; }
+  .pdf-priority-kicker { font-size: 10.5px; font-weight: 800; letter-spacing: .5px; margin-bottom: 4px; }
+  .pdf-priority-headline { font-size: 17px; font-weight: 800; color: #0a2f4e; margin-bottom: 4px; }
+  .pdf-priority p { font-size: 12.5px; margin: 0; }
+  .pdf-other-findings { margin-bottom: 18px; }
+  .pdf-of-row { font-size: 12px; padding: 6px 0; border-bottom: 1px dashed #e2e8ee; }
+  .pdf-bottom-line { font-size: 12.5px; background: #f3f7f9; border-radius: 8px; padding: 10px 14px; margin: 4px 0 18px; }
+  .pdf-score-block { display: flex; align-items: center; gap: 22px; background: #f3f7f9; border: 1px solid #dde3e8; border-radius: 10px; padding: 18px 22px; margin-bottom: 8px; }
   .pdf-score-value { font-size: 44px; font-weight: 800; color: #0a2f4e; }
   .pdf-score-label { font-size: 12px; color: #6b7686; }
   .pdf-signed-banner { background: #eafaf3; border: 1px solid #b7e4cc; border-radius: 8px; padding: 12px 16px; margin-bottom: 20px; font-size: 12.5px; color: #1c6b41; }
@@ -459,12 +789,28 @@ function buildReportPdfHtml(report, opts) {
   .risk-moderate .pdf-risk-badge { background: #fdf2df; color: #8a5c10; }
   .risk-high .pdf-risk-badge { background: #fbe8e6; color: #9c2b23; }
   .pdf-finding { font-size: 12.5px; margin-bottom: 8px; }
+  .pdf-stat-table { margin-bottom: 8px; }
+  .pdf-conf-badge { display: inline-block; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 8px; margin-bottom: 6px; }
+  .pdf-conf-high { background: #e4f7ec; color: #1c6b41; }
+  .pdf-conf-moderate { background: #fdf2df; color: #8a5c10; }
+  .pdf-conf-screening { background: #eef1f4; color: #5c6773; }
   .pdf-subhead { font-size: 10.5px; font-weight: 700; text-transform: uppercase; color: #7a8593; margin: 8px 0 4px; }
   .pdf-list { margin: 0 0 6px 18px; padding: 0; font-size: 11.5px; color: #333; }
   .pdf-reasoning { font-size: 11.5px; color: #333; line-height: 1.55; margin: 0; }
   .pdf-override-note { margin-top: 8px; font-size: 11px; background: #fff7e0; border: 1px solid #f0dca0; border-radius: 6px; padding: 8px 10px; color: #6b5000; }
   .pdf-recos { font-size: 12.5px; margin: 0 0 0 18px; color: #333; }
+  .pdf-action-group { margin-bottom: 14px; }
+  .pdf-action-head { display: inline-block; font-size: 10.5px; font-weight: 800; letter-spacing: .4px; padding: 3px 10px; border-radius: 8px; margin-bottom: 6px; }
   .pdf-footer { margin-top: 32px; padding-top: 14px; border-top: 1px solid #e2e8ee; font-size: 10px; color: #99a2b0; }
+  .stat-row { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; font-size: 11.5px; padding: 4px 0; border-bottom: 1px dashed #e2e8ee; }
+  .stat-row:last-child { border-bottom: none; }
+  .stat-label { color: #1a2230; font-weight: 600; flex: 1 1 auto; min-width: 120px; }
+  .stat-value { font-family: monospace; color: #1a2230; }
+  .stat-range { color: #7a8593; }
+  .stat-flag { font-size: 9.5px; font-weight: 700; text-transform: uppercase; padding: 1px 6px; border-radius: 8px; margin-left: auto; }
+  .stat-flag-normal { background: #e4f7ec; color: #1c6b41; }
+  .stat-flag-high { background: #fbe8e6; color: #9c2b23; }
+  .stat-flag-low { background: #fdf2df; color: #8a5c10; }
   @page { margin: 16mm 15mm; }
   @media print { a { color: inherit; text-decoration: none; } }
 </style></head>
@@ -483,20 +829,15 @@ function buildReportPdfHtml(report, opts) {
     <div>Generated ${generated}</div>
   </div>
 
-  <div class="pdf-score-block">
-    <div class="pdf-score-value">${report.overall_health_score}</div>
-    <div class="pdf-score-label">Overall Health Score<br>/100</div>
-  </div>
-  ${disclaimerBlock}
-
   ${signedBlock}
+  ${summaryBlock}
   ${aiBlock}
 
   <div class="pdf-section-title">${simplified ? 'By System' : 'Per-System Findings'}</div>
   ${systems}
 
   <div class="pdf-section-title">${simplified ? 'What Happens Next' : 'Recommendations'}</div>
-  <ul class="pdf-recos">${recos}</ul>
+  ${pdfActionPlanHTML(report)}
 
   <div class="pdf-footer">
     Vitarus · Multi-Modal Veterinary Diagnostic Platform — this report was generated from six non-sedated
@@ -512,6 +853,18 @@ function buildReportPdfHtml(report, opts) {
 </body></html>`;
 }
 
+function bottomLineText(report) {
+  const ranked = rankedSystems(report, SYSTEM_LABELS_SIMPLE);
+  const top = ranked[0];
+  if (!top || top.s.level === 'Low Risk') return 'No significant concerns were identified this visit.';
+  const concerns = ranked.filter(e => e.s.level !== 'Low Risk');
+  const reassuring = ranked.filter(e => e.s.level === 'Low Risk');
+  const otherCount = concerns.length - 1;
+  return `The most important finding is ${top.label.toLowerCase()} (${LEVEL_LABELS_SIMPLE[top.s.level].toLowerCase()}).`
+    + (otherCount > 0 ? ` ${otherCount} other area${otherCount > 1 ? 's' : ''} also need${otherCount === 1 ? 's' : ''} follow-up,` : '')
+    + (reassuring.length ? ` while ${reassuring.length} area${reassuring.length > 1 ? 's look' : ' looks'} reassuring.` : '');
+}
+
 function downloadReportPDF(report, opts) {
   const win = window.open('', '_blank');
   if (!win) { alert('Please allow pop-ups to download the PDF.'); return; }
@@ -520,18 +873,47 @@ function downloadReportPDF(report, opts) {
   win.document.close();
 }
 
-function renderReport(container, report, opts = {}) {
-  const showRawJson = opts.showRawJson !== false;
-  container.innerHTML =
-    reportActionsHTML() +
+/* ═══════════════════════════════════════════════════════════════════════
+   Assembly — two structurally different layouts sharing every building
+   block above. Clinical (simplified:false) keeps the score-first order
+   staff/vet already know. Owner (simplified:true) leads with priority →
+   bottom line → the explained score → findings → action plan, so the
+   reader gets the answer before the analysis.
+   ═══════════════════════════════════════════════════════════════════════ */
+function clinicalReportHTML(report, opts, showRawJson) {
+  return reportActionsHTML() +
     reportHeroHTML(report, opts) +
     signedBannerHTML(opts.signedBanner) +
     correctionBannerHTML(opts.correctionBanner) +
-    (opts.simplified ? ownerIntroHTML(report) : '') +
     aiSummaryHTML(opts) +
     reportSystemsHTML(report, opts) +
-    reportRecosHTML(report, opts) +
+    actionPlanHTML(report, opts) +
     (showRawJson ? reportRawJsonHTML(report) : '');
+}
+
+function ownerReportHTML(report, opts) {
+  return reportActionsHTML() +
+    patientHeaderHTML(report, opts) +
+    dataQualityHTML(report) +
+    signedBannerHTML(opts.signedBanner) +
+    correctionBannerHTML(opts.correctionBanner) +
+    ownerPriorityHTML(report) +
+    bottomLineHTML(report) +
+    scoreExplainerHTML(report) +
+    legendHTML() +
+    aiSummaryHTML(opts) +
+    reassuringHTML(report) +
+    `<div class="detail-section-title" style="margin:28px 0 12px;">Findings by system</div>` +
+    reportSystemsHTML(report, opts) +
+    `<div class="detail-section-title" style="margin:28px 0 12px;">Action plan</div>` +
+    actionPlanHTML(report, opts);
+}
+
+function renderReport(container, report, opts = {}) {
+  const showRawJson = opts.showRawJson !== false;
+  container.innerHTML = opts.simplified
+    ? ownerReportHTML(report, opts)
+    : clinicalReportHTML(report, opts, showRawJson);
 
   wireOverrideControls(container, report, opts);
   wireReportActions(container, report, opts);
