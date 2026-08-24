@@ -187,6 +187,35 @@ function router(db) {
     res.json({ ...pet, owner });
   }));
 
+  // Owner (their own pet) or clinic staff: edit any of a pet's details —
+  // the same field set POST /pets accepts, so this is that same intake
+  // shape reused for a pet that already exists rather than a separate
+  // "edit" schema. Owners use this from the pet detail page; clinic staff
+  // can correct intake mistakes without deleting/re-adding the record.
+  r.put('/pets/:id', requireAuth, ah(async (req, res) => {
+    const pet = await db.prepare('SELECT id, owner_user_id FROM pets WHERE id = ?').get(req.params.id);
+    if (!pet) return res.status(404).json({ error: 'pet not found' });
+    const isOwnerOfPet = req.user.role === 'owner' && pet.owner_user_id === req.user.id;
+    if (!isOwnerOfPet && !CLINIC_ROLES.includes(req.user.role))
+      return res.status(403).json({ error: 'not permitted' });
+
+    const { name, species, breed, breedKey, sex, age_years, weight_kg, microchip, color, allergies, medical_notes } = req.body || {};
+    if (!name || !species) return res.status(400).json({ error: 'name and species are required' });
+
+    const directoryEntry = species !== 'Feline' ? getBreedDirectoryEntry(breedKey) : null;
+    const breedGroup = directoryEntry ? directoryEntry.group : null;
+    const breedSize = directoryEntry ? directoryEntry.size : null;
+
+    await db.prepare(`
+      UPDATE pets SET name = ?, species = ?, breed = ?, breed_key = ?, breed_group = ?, breed_size = ?,
+        sex = ?, age_years = ?, weight_kg = ?, microchip = ?, color = ?, allergies = ?, medical_notes = ?
+      WHERE id = ?
+    `).run(name, species, breed || null, breedKey || null, breedGroup, breedSize, sex || null,
+      age_years ?? null, weight_kg ?? null, microchip || null, color || null, allergies || null, medical_notes || null, pet.id);
+
+    res.json(await db.prepare('SELECT * FROM pets WHERE id = ?').get(pet.id));
+  }));
+
   // ── Pet photo: upload / fetch / remove ────────────────────────────────────
   // Bytes live in pet_photos, never in a plain pets row (see server/db.js) —
   // pets.has_photo is the cheap flag every pet list already carries so the

@@ -204,6 +204,44 @@
 
     <div id="detail-pet-banner"></div>
 
+    <div class="card add-pet-card" id="edit-pet-card" style="display:none;">
+      <div class="card-header">Edit pet details</div>
+      <div class="card-body">
+        <div class="add-pet-grid">
+          <div class="form-group"><label>Name</label><input type="text" id="edit-pet-name"></div>
+          <div class="form-group"><label>Species</label>
+            <select id="edit-pet-species"><option>Canine</option><option>Feline</option></select>
+          </div>
+          <div class="form-group span-2"><label>Breed</label>
+            <div class="breed-picker">
+              <input type="text" id="edit-pet-breed-search" class="breed-picker-input" placeholder="Search 225+ breeds…" autocomplete="off">
+              <select id="edit-pet-breed" class="breed-picker-native"></select>
+              <div id="edit-pet-breed-suggestions" class="breed-picker-suggestions" hidden></div>
+            </div>
+          </div>
+          <div class="form-group"><label>Sex</label>
+            <select id="edit-pet-sex">
+              <option>Male (Intact)</option>
+              <option>Male (Neutered)</option>
+              <option>Female (Intact)</option>
+              <option>Female (Spayed)</option>
+            </select>
+          </div>
+          <div class="form-group"><label>Age (years)</label><input type="number" id="edit-pet-age" min="0" max="25" step="0.5"></div>
+          <div class="form-group"><label>Weight (kg)</label><input type="number" id="edit-pet-weight" min="0" step="0.1"></div>
+          <div class="form-group"><label>Microchip</label><input type="text" id="edit-pet-microchip"></div>
+          <div class="form-group"><label>Color / Markings</label><input type="text" id="edit-pet-color"></div>
+          <div class="form-group span-2"><label>Known allergies</label><input type="text" id="edit-pet-allergies"></div>
+          <div class="form-group span-2"><label>Existing conditions / notes</label><textarea id="edit-pet-notes" rows="2"></textarea></div>
+        </div>
+        <div class="text-muted" id="edit-pet-status" style="min-height:16px;margin-top:8px;"></div>
+        <div style="display:flex;gap:8px;margin-top:6px;">
+          <button class="btn btn-primary" id="btn-save-pet-edit">Save changes</button>
+          <button class="btn btn-secondary" id="btn-cancel-pet-edit">Cancel</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Sticky compare bar — appears when 2 exams are checked -->
     <div class="compare-bar" id="compare-bar" style="display:none;">
       <span class="cb-hint" id="compare-bar-hint">Select <b>2</b> reports to compare</span>
@@ -406,6 +444,7 @@ function openPetDetail(pet) {
           ${pet.weight_kg  != null ? ' · ' + pet.weight_kg  + ' kg' : ''}
         </div>
         <label class="dpb-photo-btn" for="pet-photo-input">${pet.has_photo ? 'Change photo' : '+ Add a photo'}</label>
+        <button type="button" class="dpb-photo-btn" id="btn-edit-pet-details" style="border:none;background:none;padding:0;font:inherit;margin-left:10px;">Edit details</button>
         <span id="pet-photo-status" class="text-muted" style="font-size:11px;margin-left:8px;"></span>
       </div>
     </div>
@@ -423,6 +462,8 @@ function openPetDetail(pet) {
     if (file) uploadPetPhoto(pet.id, file);
     e.target.value = '';
   });
+  document.getElementById('edit-pet-card').style.display = 'none';
+  document.getElementById('btn-edit-pet-details').addEventListener('click', () => openEditPetForm(pet));
 
   const sectionLabel = document.getElementById('detail-section-label');
   sectionLabel.textContent = petExams.length === 1 ? '1 Report' : `${petExams.length} Reports`;
@@ -662,72 +703,91 @@ document.getElementById('btn-compare-go').addEventListener('click', () => {
 // with the same breed/sex/age/etc. detail a staff intake would — that's
 // what lets staff's owner-email lookup autofill something meaningful
 // instead of a bare name+species record.
-function populateNewPetBreedOptions() {
-  const species = document.getElementById('new-pet-species').value;
-  const select = document.getElementById('new-pet-breed');
-  const list = BREED_LIST[species] || BREED_LIST.Canine;
-  select.innerHTML = list.map(b => `<option value="${b.key}">${b.label}</option>`).join('');
-  document.getElementById('new-pet-breed-search').value = select.selectedOptions[0]?.text || '';
-  document.getElementById('new-pet-breed-suggestions').hidden = true;
-  updateNewPetBreedPreview();
-}
-function updateNewPetBreedPreview() {
-  const species = document.getElementById('new-pet-species').value;
-  const select = document.getElementById('new-pet-breed');
-  const label = select.selectedOptions[0]?.text || '';
-  document.getElementById('new-pet-preview-img').src = breedImagePath(species, select.value);
-  const entry = species !== 'Feline' ? resolveBreedEntry(select.value) : null;
-  const groupSuffix = entry ? ` · ${entry.group}` : '';
-  document.getElementById('new-pet-preview-caption').textContent = `${species} · ${label}${groupSuffix}`;
-}
-document.getElementById('new-pet-species').addEventListener('change', populateNewPetBreedOptions);
-document.getElementById('new-pet-breed').addEventListener('change', updateNewPetBreedPreview);
-populateNewPetBreedOptions();
+//
+// Factored into one setup function keyed by an id prefix (`new-pet` /
+// `edit-pet`) since the add-pet form and the pet-detail edit form both need
+// an identical picker — only the field ids differ. Preview image/caption
+// elements are optional (the edit form skips them).
+function setupBreedPicker(prefix) {
+  const speciesEl        = document.getElementById(`${prefix}-species`);
+  const selectEl         = document.getElementById(`${prefix}-breed`);
+  const searchEl         = document.getElementById(`${prefix}-breed-search`);
+  const suggestEl        = document.getElementById(`${prefix}-breed-suggestions`);
+  const previewImgEl     = document.getElementById(`${prefix}-preview-img`);
+  const previewCaptionEl = document.getElementById(`${prefix}-preview-caption`);
 
-function renderNewPetBreedSuggestions(query) {
-  const species = document.getElementById('new-pet-species').value;
-  const list = BREED_LIST[species] || BREED_LIST.Canine;
-  const q = query.trim().toLowerCase();
-  const matches = q ? list.filter(b => b.label.toLowerCase().includes(q)) : list;
-  const box = document.getElementById('new-pet-breed-suggestions');
-  box.innerHTML = matches.length
-    ? matches.slice(0, 50).map(b => `<div class="breed-picker-option" data-key="${b.key}">${escapeHtml(b.label)}</div>`).join('')
-      + (matches.length > 50 ? `<div class="breed-picker-empty">${matches.length - 50} more — keep typing to narrow it down</div>` : '')
-    : '<div class="breed-picker-empty">No matching breed</div>';
-  box.hidden = false;
-}
-function selectNewPetBreed(key) {
-  const select = document.getElementById('new-pet-breed');
-  if (![...select.options].some(o => o.value === key)) return;
-  select.value = key;
-  select.dispatchEvent(new Event('change'));
-  document.getElementById('new-pet-breed-search').value = select.selectedOptions[0]?.text || '';
-  document.getElementById('new-pet-breed-suggestions').hidden = true;
-}
-const newPetBreedSearchInput = document.getElementById('new-pet-breed-search');
-newPetBreedSearchInput.addEventListener('focus', () => renderNewPetBreedSuggestions(newPetBreedSearchInput.value));
-newPetBreedSearchInput.addEventListener('input', () => renderNewPetBreedSuggestions(newPetBreedSearchInput.value));
-newPetBreedSearchInput.addEventListener('keydown', e => {
-  if (e.key === 'Enter') {
-    e.preventDefault();
-    const first = document.querySelector('#new-pet-breed-suggestions .breed-picker-option');
-    if (first) selectNewPetBreed(first.getAttribute('data-key'));
-  } else if (e.key === 'Escape') {
-    document.getElementById('new-pet-breed-suggestions').hidden = true;
+  function populate() {
+    const species = speciesEl.value;
+    const list = BREED_LIST[species] || BREED_LIST.Canine;
+    selectEl.innerHTML = list.map(b => `<option value="${b.key}">${b.label}</option>`).join('');
+    searchEl.value = selectEl.selectedOptions[0]?.text || '';
+    suggestEl.hidden = true;
+    updatePreview();
   }
-});
-document.getElementById('new-pet-breed-suggestions').addEventListener('click', e => {
-  const opt = e.target.closest('.breed-picker-option');
-  if (opt) selectNewPetBreed(opt.getAttribute('data-key'));
-});
+  function updatePreview() {
+    const species = speciesEl.value;
+    const label = selectEl.selectedOptions[0]?.text || '';
+    if (previewImgEl) previewImgEl.src = breedImagePath(species, selectEl.value);
+    if (previewCaptionEl) {
+      const entry = species !== 'Feline' ? resolveBreedEntry(selectEl.value) : null;
+      previewCaptionEl.textContent = `${species} · ${label}${entry ? ' · ' + entry.group : ''}`;
+    }
+  }
+  function renderSuggestions(query) {
+    const species = speciesEl.value;
+    const list = BREED_LIST[species] || BREED_LIST.Canine;
+    const q = query.trim().toLowerCase();
+    const matches = q ? list.filter(b => b.label.toLowerCase().includes(q)) : list;
+    suggestEl.innerHTML = matches.length
+      ? matches.slice(0, 50).map(b => `<div class="breed-picker-option" data-key="${b.key}">${escapeHtml(b.label)}</div>`).join('')
+        + (matches.length > 50 ? `<div class="breed-picker-empty">${matches.length - 50} more — keep typing to narrow it down</div>` : '')
+      : '<div class="breed-picker-empty">No matching breed</div>';
+    suggestEl.hidden = false;
+  }
+  function selectBreed(key) {
+    if (![...selectEl.options].some(o => o.value === key)) return;
+    selectEl.value = key;
+    selectEl.dispatchEvent(new Event('change'));
+    searchEl.value = selectEl.selectedOptions[0]?.text || '';
+    suggestEl.hidden = true;
+  }
+
+  speciesEl.addEventListener('change', populate);
+  selectEl.addEventListener('change', updatePreview);
+  searchEl.addEventListener('focus', () => renderSuggestions(searchEl.value));
+  searchEl.addEventListener('input', () => renderSuggestions(searchEl.value));
+  searchEl.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const first = suggestEl.querySelector('.breed-picker-option');
+      if (first) selectBreed(first.getAttribute('data-key'));
+    } else if (e.key === 'Escape') {
+      suggestEl.hidden = true;
+    }
+  });
+  suggestEl.addEventListener('click', e => {
+    const opt = e.target.closest('.breed-picker-option');
+    if (opt) selectBreed(opt.getAttribute('data-key'));
+  });
+
+  return { populate, selectBreed };
+}
+
 document.addEventListener('click', e => {
-  if (!e.target.closest('#view-list .breed-picker')) document.getElementById('new-pet-breed-suggestions').hidden = true;
+  document.querySelectorAll('.breed-picker-suggestions').forEach(box => {
+    if (!box.hidden && !box.closest('.breed-picker').contains(e.target)) box.hidden = true;
+  });
 });
+
+const newPetBreedPicker = setupBreedPicker('new-pet');
+newPetBreedPicker.populate();
+const editPetBreedPicker = setupBreedPicker('edit-pet');
+editPetBreedPicker.populate();
 
 function resetAddPetForm() {
   document.getElementById('new-pet-name').value = '';
   document.getElementById('new-pet-species').value = 'Canine';
-  populateNewPetBreedOptions();
+  newPetBreedPicker.populate();
   document.getElementById('new-pet-sex').value = 'Male (Intact)';
   document.getElementById('new-pet-age').value = '';
   document.getElementById('new-pet-weight').value = '';
@@ -790,11 +850,79 @@ document.getElementById('btn-add-pet').addEventListener('click', async () => {
       // this same status element — leave it, don't paper over it.
       if (photoOk) {
         statusEl.style.color = '#3fb950';
-        statusEl.textContent = `${name} added, with photo.`;
+        statusEl.textContent = `${name} added.`;
       }
     }
 
     loadPets();
+  } catch (e) {
+    statusEl.style.color = 'var(--red)';
+    statusEl.textContent = e.message;
+  }
+});
+
+// ════════════════════════════════════════════════════════════════════════
+// Edit pet details (from the pet detail page — every field, not just photo)
+// ════════════════════════════════════════════════════════════════════════
+function openEditPetForm(pet) {
+  document.getElementById('edit-pet-name').value = pet.name || '';
+  document.getElementById('edit-pet-species').value = pet.species || 'Canine';
+  editPetBreedPicker.populate();
+  if (pet.breed_key) editPetBreedPicker.selectBreed(pet.breed_key);
+  document.getElementById('edit-pet-sex').value = pet.sex || 'Male (Intact)';
+  document.getElementById('edit-pet-age').value = pet.age_years ?? '';
+  document.getElementById('edit-pet-weight').value = pet.weight_kg ?? '';
+  document.getElementById('edit-pet-microchip').value = pet.microchip || '';
+  document.getElementById('edit-pet-color').value = pet.color || '';
+  document.getElementById('edit-pet-allergies').value = pet.allergies || '';
+  document.getElementById('edit-pet-notes').value = pet.medical_notes || '';
+  document.getElementById('edit-pet-status').textContent = '';
+  document.getElementById('edit-pet-card').style.display = 'block';
+  document.getElementById('edit-pet-card').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+document.getElementById('btn-cancel-pet-edit').addEventListener('click', () => {
+  document.getElementById('edit-pet-card').style.display = 'none';
+});
+
+document.getElementById('btn-save-pet-edit').addEventListener('click', async () => {
+  if (!currentPet) return;
+  const name        = document.getElementById('edit-pet-name').value.trim();
+  const species     = document.getElementById('edit-pet-species').value;
+  const breedSelect = document.getElementById('edit-pet-breed');
+  const ageVal      = document.getElementById('edit-pet-age').value;
+  const weightVal   = document.getElementById('edit-pet-weight').value;
+  const statusEl    = document.getElementById('edit-pet-status');
+  if (!name) { statusEl.style.color = 'var(--red)'; statusEl.textContent = 'Enter a name.'; return; }
+  try {
+    const res = await fetch(`/api/pets/${currentPet.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({
+        name, species,
+        breed: breedSelect.selectedOptions[0]?.text || '',
+        breedKey: breedSelect.value || null,
+        sex: document.getElementById('edit-pet-sex').value,
+        age_years: ageVal ? Number(ageVal) : null,
+        weight_kg: weightVal ? Number(weightVal) : null,
+        microchip: document.getElementById('edit-pet-microchip').value.trim() || null,
+        color: document.getElementById('edit-pet-color').value.trim() || null,
+        allergies: document.getElementById('edit-pet-allergies').value.trim() || null,
+        medical_notes: document.getElementById('edit-pet-notes').value.trim() || null
+      })
+    });
+    if (!res.ok) throw new Error((await res.json()).error || 'could not update pet');
+    const updated = await res.json();
+
+    document.getElementById('edit-pet-card').style.display = 'none';
+    await loadPets();
+    // loadPets() rebuilds myPets from the server, so pick the fresh copy
+    // rather than the pre-edit `currentPet` closed over above.
+    const fresh = myPets.find(p => p.id === updated.id) || updated;
+    openPetDetail(fresh);
+    document.getElementById('pet-photo-status').style.color = '#3fb950';
+    document.getElementById('pet-photo-status').textContent = `${name} updated.`;
   } catch (e) {
     statusEl.style.color = 'var(--red)';
     statusEl.textContent = e.message;
