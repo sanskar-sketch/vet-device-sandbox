@@ -271,31 +271,39 @@ function pdfRiskClass(level) {
   return level === 'Low Risk' ? 'risk-low' : level === 'Moderate Risk' ? 'risk-moderate' : 'risk-high';
 }
 
-function pdfSystemBlock(key, label, report) {
+function pdfSystemBlock(key, label, report, simplified) {
   const s = report.systems[key];
   if (!s) return '';
   const override = s.vet_override
     ? `<div class="pdf-override-note"><b>Vet override:</b> ${s.vet_override.previous_level} → ${s.level} — ${s.vet_override.reason}</div>`
     : '';
+  // Owner-facing PDF mirrors the mailed report (server/lib/report-pdf.js):
+  // plain-language risk label, headline finding + reasoning only — no
+  // instrument names, confidence percentages or per-signal weighting.
+  const detail = simplified
+    ? `<div class="pdf-subhead">What we looked at</div>
+       <p class="pdf-reasoning">${s.reasoning}</p>`
+    : `<div class="pdf-subhead">Screened for</div>
+       <ul class="pdf-list">${(s.screened_for || []).map(c => `<li>${c}</li>`).join('') || '<li>—</li>'}</ul>
+       <div class="pdf-subhead">Evidence (confidence ${s.confidence}% · ${s.modalities.join(', ')})</div>
+       <ul class="pdf-list">${s.signals.map(sig => `<li>${sig.modality} — ${sig.note} (${sig.contributionPct}% weight)</li>`).join('')}</ul>
+       <div class="pdf-subhead">Clinical reasoning</div>
+       <p class="pdf-reasoning">${s.reasoning}</p>`;
   return `
     <div class="pdf-system ${pdfRiskClass(s.level)}">
       <div class="pdf-system-top">
         <span class="pdf-system-name">${label}</span>
-        <span class="pdf-risk-badge">${s.level}</span>
+        <span class="pdf-risk-badge">${levelLabel(s.level, simplified)}</span>
       </div>
       <div class="pdf-finding">${report.key_findings[key] || ''}</div>
-      <div class="pdf-subhead">Screened for</div>
-      <ul class="pdf-list">${(s.screened_for || []).map(c => `<li>${c}</li>`).join('') || '<li>—</li>'}</ul>
-      <div class="pdf-subhead">Evidence (confidence ${s.confidence}% · ${s.modalities.join(', ')})</div>
-      <ul class="pdf-list">${s.signals.map(sig => `<li>${sig.modality} — ${sig.note} (${sig.contributionPct}% weight)</li>`).join('')}</ul>
-      <div class="pdf-subhead">Clinical reasoning</div>
-      <p class="pdf-reasoning">${s.reasoning}</p>
+      ${detail}
       ${override}
     </div>`;
 }
 
 function buildReportPdfHtml(report, opts) {
   const p = report.patient || {};
+  const simplified = !!opts.simplified;
   const generated = report.generated_at ? new Date(report.generated_at).toLocaleString() : '';
   const signed = opts.signedBanner;
   const signedBlock = signed ? `
@@ -305,10 +313,18 @@ function buildReportPdfHtml(report, opts) {
     </div>` : `
     <div class="pdf-draft-banner">This copy is a pre-review draft — it has not yet been signed by a vet.</div>`;
   const aiBlock = opts.aiNarrativeHtml ? `
-    <div class="pdf-section-title">AI Clinical Summary</div>
+    <div class="pdf-section-title">${simplified ? 'Summary' : 'AI Clinical Summary'}</div>
     <div class="pdf-ai">${opts.aiNarrativeHtml}</div>` : '';
+  // Same disclaimer wording as the mailed PDF (server/lib/report-pdf.js) —
+  // sets expectations before the owner reads any number.
+  const disclaimerBlock = simplified ? `
+    <p style="font-size:11px;color:#8798a1;margin:-10px 0 20px;">This is a wellbeing indicator, not a diagnosis.
+      If anything here is unclear or worrying, your vet is the best person to ask.</p>` : '';
+  const photoBlock = opts.petPhotoUrl
+    ? `<img src="${opts.petPhotoUrl}" alt="" style="width:64px;height:64px;border-radius:10px;object-fit:cover;border:1px solid #d8e5e2;margin-left:auto;">` : '';
 
-  const systems = Object.entries(SYSTEM_LABELS).map(([key, label]) => pdfSystemBlock(key, label, report)).join('');
+  const labels = simplified ? SYSTEM_LABELS_SIMPLE : SYSTEM_LABELS;
+  const systems = Object.entries(labels).map(([key, label]) => pdfSystemBlock(key, label, report, simplified)).join('');
   const recos = (report.recommendations || []).map(r => `<li>${r}</li>`).join('');
 
   return `<!doctype html>
@@ -356,6 +372,7 @@ function buildReportPdfHtml(report, opts) {
       <div class="pdf-brand-name">Vitarus</div>
       <div class="pdf-brand-sub">Multi-Modal Veterinary Diagnostic Report</div>
     </div>
+    ${photoBlock}
   </div>
 
   <div class="pdf-meta-row">
@@ -367,14 +384,15 @@ function buildReportPdfHtml(report, opts) {
     <div class="pdf-score-value">${report.overall_health_score}</div>
     <div class="pdf-score-label">Overall Health Score<br>/100</div>
   </div>
+  ${disclaimerBlock}
 
   ${signedBlock}
   ${aiBlock}
 
-  <div class="pdf-section-title">Per-System Findings</div>
+  <div class="pdf-section-title">${simplified ? 'By System' : 'Per-System Findings'}</div>
   ${systems}
 
-  <div class="pdf-section-title">Recommendations</div>
+  <div class="pdf-section-title">${simplified ? 'What Happens Next' : 'Recommendations'}</div>
   <ul class="pdf-recos">${recos}</ul>
 
   <div class="pdf-footer">
