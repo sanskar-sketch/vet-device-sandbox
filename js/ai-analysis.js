@@ -57,6 +57,7 @@ function analyzeThermal(raw, patientCtx = {}) {
   return {
     thermal_asymmetry_map: { forelimb_delta_c: foreDelta, hindlimb_delta_c: hindDelta, max_delta_c: maxDelta, tolerance_c: tolerance },
     heat_index_c: heatIndex,
+    core_temp_normal_range_c: ranges.core_temp_c,
     core_temp_status: feverish ? "Feverish" : hypothermic ? "Hypothermic" : "Normal",
     inflammation_score: inflammationScore,
     pain_probability: painProbability,
@@ -146,9 +147,14 @@ function analyzeCardiac(raw, patientCtx = {}) {
     heart_rate_bpm: hr,
     heart_rate_normal_range_bpm: ranges.heart_rate_bpm,
     qtc_interval_ms: qtc,
+    qtc_interval_normal_max_ms: ranges.qtc_ms_max,
     spo2_pct: spo2,
+    spo2_normal_min_pct: ranges.spo2_pct_min,
     hypoxemia_flagged: hypoxemic,
-    blood_pressure: { systolic_mmhg: systolic, diastolic_mmhg: diastolic, map_mmhg: vitals.non_invasive_bp.map_mmhg, acvim_stage: bpStage },
+    blood_pressure: {
+      systolic_mmhg: systolic, diastolic_mmhg: diastolic, map_mmhg: vitals.non_invasive_bp.map_mmhg,
+      systolic_normal_max_mmhg: ranges.systolic_bp_mmhg_max, acvim_stage: bpStage
+    },
     hypertension_flagged: hypertensive
   };
 }
@@ -249,6 +255,7 @@ function analyzeGait(frames, cols, patientCtx = {}) {
     lameness_grade: lamenessGrade,
     lameness_scale: "0 (sound) – 5 (non-weight-bearing)",
     gait_symmetry_pct: symmetryPct,
+    gait_symmetry_normal_min_pct: ranges.gait_symmetry_normal_pct,
     joint_loading_peak_n: parseFloat(peak.toFixed(2)),
     weight_distribution_pct: weightDistribution,
     range_of_motion_deg: rand(90, 165, 0),

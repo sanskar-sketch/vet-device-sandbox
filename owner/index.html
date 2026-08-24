@@ -95,6 +95,16 @@
 
   .back-btn { margin-bottom: 16px; }
 
+  .report-mode-toggle {
+    display: inline-flex; gap: 2px; padding: 3px; margin-bottom: 16px;
+    background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  }
+  .rmt-btn {
+    border: none; background: none; cursor: pointer; padding: 6px 14px;
+    font-size: 12.5px; font-weight: 600; color: var(--text-muted); border-radius: 6px;
+  }
+  .rmt-btn.active { background: var(--accent); color: #fff; }
+
   .preview-banner {
     background: rgba(88,166,255,.1); border-bottom: 1px solid rgba(88,166,255,.35);
     padding: 8px 24px; font-size: 12.5px; color: var(--text-muted); text-align: center;
@@ -258,6 +268,10 @@
   <!-- ── VIEW 3: Single report ───────────────────────────────────────── -->
   <div id="view-report" style="display:none;">
     <button class="btn btn-secondary back-btn" id="btn-report-back">← Back to reports</button>
+    <div class="report-mode-toggle" id="report-mode-toggle">
+      <button type="button" class="rmt-btn active" data-mode="simple">Simple report</button>
+      <button type="button" class="rmt-btn" data-mode="detailed">Detailed report</button>
+    </div>
     <div id="owner-report-content"></div>
   </div>
 
@@ -550,8 +564,11 @@ function updateCompareBar() {
 // ════════════════════════════════════════════════════════════════════════
 // VIEW 3 — Single report
 // ════════════════════════════════════════════════════════════════════════
-function openExam(id) {
-  const exam = myExams.find(e => String(e.id) === String(id));
+let currentReportExam = null;   // exam open in the single-report view
+let reportViewMode     = 'simple'; // 'simple' | 'detailed' — see renderOwnerReport()
+
+function renderOwnerReport() {
+  const exam = currentReportExam;
   if (!exam) return;
   const container = document.getElementById('owner-report-content');
   renderReport(container, exam.report, {
@@ -567,15 +584,36 @@ function openExam(id) {
     aiNarrativeHtml: exam.ai_narrative
       ? exam.ai_narrative.split('\n').filter(p => p.trim()).map(p => `<p>${p}</p>`).join('')
       : null,
+    // Raw Fusion JSON stays staff/vet-only even in Detailed mode — it's a
+    // debugging dump, not a reading a pet owner needs.
     showRawJson: false,
-    // Owner-facing: plain-language labels, no instrument names, confidence
-    // percentages or signal-weighting maths (see js/report-view.js).
-    simplified: true,
+    // Simple = plain-language labels, no instrument names/confidence/signal
+    // weighting (see js/report-view.js). Detailed = the same clinical view
+    // staff/vet see, including the Machine Readings section (raw value vs.
+    // the reference range that decided each flag) plus the AI summary above.
+    simplified: reportViewMode === 'simple',
     // From the live pet record (exam.pet, joined server-side), not the
     // frozen report JSON — a photo uploaded after this exam was signed
     // should still show up when the report is opened later.
     petPhotoUrl: exam.pet && exam.pet.has_photo ? `/api/pets/${exam.pet.id}/photo` : null
   });
+  document.querySelectorAll('#report-mode-toggle .rmt-btn').forEach(btn =>
+    btn.classList.toggle('active', btn.getAttribute('data-mode') === reportViewMode));
+}
+
+document.querySelectorAll('#report-mode-toggle .rmt-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    reportViewMode = btn.getAttribute('data-mode');
+    renderOwnerReport();
+  });
+});
+
+function openExam(id) {
+  const exam = myExams.find(e => String(e.id) === String(id));
+  if (!exam) return;
+  currentReportExam = exam;
+  reportViewMode = 'simple';
+  renderOwnerReport();
   showView('view-report');
 }
 

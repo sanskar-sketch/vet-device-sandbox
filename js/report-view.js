@@ -130,6 +130,94 @@ function overrideBlockHTML(key, system, editable) {
     </div>`;
 }
 
+/* ═══════════════════════════════════════════════════════════════════════
+   Machine Readings — the raw per-instrument values behind each system's
+   score, shown next to the reference range that actually decided whether
+   each one was flagged (js/vet-knowledge-base.js's species/breed/age-aware
+   getReferenceRanges, via js/ai-analysis.js). Pulled from report.modality_data
+   (js/fusion-engine.js's runFusion() passes the raw analyze* output straight
+   through under that key) rather than re-deriving anything here.
+
+   Deliberately limited to values with a real, KB-backed (or published
+   veterinary-standard, e.g. the Levine murmur scale) reference to compare
+   against — the synthetic 0-100 composite scores (inflammation_score,
+   mobility_score, etc.) already have a home in the system's own score/level
+   and aren't given a fabricated "normal range" here.
+   ═══════════════════════════════════════════════════════════════════════ */
+function fmtStatNum(v) {
+  return typeof v === 'number' ? (Number.isInteger(v) ? String(v) : v.toFixed(1)) : v;
+}
+
+function statFlag(value, lo, hi) {
+  if (typeof value !== 'number') return null;
+  if (lo != null && value < lo) return 'low';
+  if (hi != null && value > hi) return 'high';
+  if (lo != null || hi != null) return 'normal';
+  return null;
+}
+
+function statRowHTML({ label, value, unit = '', lo, hi, rangeText }) {
+  if (value == null) return '';
+  const flag = statFlag(value, lo, hi);
+  const range = rangeText || (lo != null && hi != null ? `${fmtStatNum(lo)}–${fmtStatNum(hi)} ${unit}`.trim()
+    : hi != null ? `≤ ${fmtStatNum(hi)} ${unit}`.trim()
+    : lo != null ? `≥ ${fmtStatNum(lo)} ${unit}`.trim()
+    : '—');
+  return `
+    <div class="stat-row">
+      <span class="stat-label">${label}</span>
+      <span class="stat-value">${fmtStatNum(value)}${unit ? ' ' + unit : ''}</span>
+      <span class="stat-range">Normal: ${range}</span>
+      ${flag ? `<span class="stat-flag stat-flag-${flag}">${flag === 'high' ? 'High' : flag === 'low' ? 'Low' : 'Normal'}</span>` : ''}
+    </div>`;
+}
+
+function bloodRowsHTML(md, names) {
+  if (!md.blood || !md.blood.analytes) return '';
+  return names.map(name => {
+    const a = md.blood.analytes.find(x => x.name === name);
+    if (!a) return '';
+    const [lo, hi] = a.reference_range || [];
+    return statRowHTML({ label: a.name, value: a.value, unit: a.unit, lo, hi });
+  }).join('');
+}
+
+const SYSTEM_STAT_ROWS = {
+  skin: md => (md.thermal ? [
+    statRowHTML({ label: 'Max limb thermal asymmetry', value: md.thermal.thermal_asymmetry_map?.max_delta_c, unit: '°C', hi: md.thermal.thermal_asymmetry_map?.tolerance_c }),
+    statRowHTML({ label: 'Core temperature (thermal)', value: md.thermal.heat_index_c, unit: '°C', lo: md.thermal.core_temp_normal_range_c?.[0], hi: md.thermal.core_temp_normal_range_c?.[1] })
+  ].join('') : ''),
+  heart: md => (md.cardiac ? [
+    statRowHTML({ label: 'Heart rate', value: md.cardiac.heart_rate_bpm, unit: 'bpm', lo: md.cardiac.heart_rate_normal_range_bpm?.[0], hi: md.cardiac.heart_rate_normal_range_bpm?.[1] }),
+    statRowHTML({ label: 'QTc interval', value: md.cardiac.qtc_interval_ms, unit: 'ms', hi: md.cardiac.qtc_interval_normal_max_ms }),
+    statRowHTML({ label: 'SpO₂', value: md.cardiac.spo2_pct, unit: '%', lo: md.cardiac.spo2_normal_min_pct }),
+    statRowHTML({ label: 'Systolic blood pressure', value: md.cardiac.blood_pressure?.systolic_mmhg, unit: 'mmHg', hi: md.cardiac.blood_pressure?.systolic_normal_max_mmhg,
+      rangeText: md.cardiac.blood_pressure?.systolic_normal_max_mmhg != null ? `≤ ${fmtStatNum(md.cardiac.blood_pressure.systolic_normal_max_mmhg)} mmHg (ACVIM: ${(md.cardiac.blood_pressure.acvim_stage || '').replace(/_/g, ' ')})` : undefined }),
+    statRowHTML({ label: 'Murmur grade', value: md.cardiac.murmur_grade, rangeText: 'None (Levine I–VI scale)' })
+  ].join('') : ''),
+  musculoskeletal: md => [
+    md.gait ? statRowHTML({ label: 'Lameness grade', value: md.gait.lameness_grade, rangeText: md.gait.lameness_scale }) : '',
+    md.thermal ? statRowHTML({ label: 'Max limb thermal asymmetry', value: md.thermal.thermal_asymmetry_map?.max_delta_c, unit: '°C', hi: md.thermal.thermal_asymmetry_map?.tolerance_c }) : '',
+    md.structural ? statRowHTML({ label: 'Body condition score', value: md.structural.body_condition_score, rangeText: md.structural.body_condition_scale }) : ''
+  ].join(''),
+  liver: md => bloodRowsHTML(md, ['ALT', 'ALP', 'Total Bilirubin']),
+  kidneys: md => bloodRowsHTML(md, ['BUN', 'Creatinine']),
+  movement: md => (md.gait ? [
+    statRowHTML({ label: 'Gait symmetry', value: md.gait.gait_symmetry_pct, unit: '%', lo: md.gait.gait_symmetry_normal_min_pct })
+  ].join('') : '')
+};
+
+function machineStatsHTML(key, report) {
+  const md = report.modality_data;
+  if (!md) return '';
+  const build = SYSTEM_STAT_ROWS[key];
+  const rows = build ? build(md) : '';
+  if (!rows.trim()) return '';
+  return `
+    <div class="sc-section-label">Machine Readings</div>
+    <div class="stat-table">${rows}</div>`;
+}
+
 function reportSystemsHTML(report, opts) {
   const simple = !!opts.simplified;
   const labels = simple ? SYSTEM_LABELS_SIMPLE : SYSTEM_LABELS;
@@ -153,6 +241,7 @@ function reportSystemsHTML(report, opts) {
           <ul class="result-bullets">${(s.screened_for || []).map(c => `<li>${c}</li>`).join('')}</ul>
           <div class="sc-section-label">Evidence</div>
           <ul class="result-bullets">${s.signals.map(sig => `<li>${sig.modality} — ${sig.note} <b>(${sig.contributionPct}% weight)</b></li>`).join('')}</ul>
+          ${machineStatsHTML(key, report)}
           <div class="sc-section-label">Why this score</div>
           <p class="sc-why-text">${s.reasoning}</p>
         </details>`;
