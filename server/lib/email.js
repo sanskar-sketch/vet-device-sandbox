@@ -67,7 +67,12 @@ function toPlainText(html) {
     .trim();
 }
 
-async function send({ to, subject, html }) {
+/**
+ * @param {Array<{filename:string, content:Buffer, type:string}>} [attachments]
+ *   Buffers are base64-encoded here (SendGrid's wire format) so every
+ *   caller just hands over a plain Buffer, same as fs.readFile would give.
+ */
+async function send({ to, subject, html, attachments }) {
   const apiKey = process.env.SENDGRID_API_KEY;
   const from = process.env.EMAIL_FROM;
   if (!apiKey) return { sent: false, reason: 'no_api_key' };
@@ -76,7 +81,16 @@ async function send({ to, subject, html }) {
   const sgMail = require('@sendgrid/mail');
   sgMail.setApiKey(apiKey);
   try {
-    await sgMail.send({ to, from, subject, html, text: toPlainText(html) });
+    const msg = { to, from, subject, html, text: toPlainText(html) };
+    if (attachments && attachments.length) {
+      msg.attachments = attachments.map(a => ({
+        filename: a.filename,
+        type: a.type || 'application/octet-stream',
+        content: a.content.toString('base64'),
+        disposition: 'attachment'
+      }));
+    }
+    await sgMail.send(msg);
     return { sent: true };
   } catch (err) {
     const detail = err.response && err.response.body ? JSON.stringify(err.response.body) : err.message;

@@ -15,6 +15,7 @@ const { nowISO, appOrigin } = require('./utils');
 const { requireAuth, requireRole, publicUser } = require('./auth');
 const { ah } = require('./async-handler');
 const email = require('./email');
+const { buildReportPdf } = require('./report-pdf');
 
 const RISK_LEVELS = ['Low Risk', 'Moderate Risk', 'High Risk'];
 
@@ -236,23 +237,41 @@ function router(db) {
 
     await logEvent(db, row.id, req.user.id, 'signed', 'Report signed and released to owner');
 
-    const pet = await db.prepare('SELECT name, species, owner_email FROM pets WHERE id = ?').get(row.pet_id);
+    const updatedRow = await db.prepare('SELECT * FROM exams WHERE id = ?').get(row.id);
+    const updated = await serializeExam(updatedRow, { db });
+
+    const pet = await db.prepare('SELECT name, species, breed, age_years, weight_kg, owner_email FROM pets WHERE id = ?').get(row.pet_id);
     if (pet && pet.owner_email) {
       const origin = appOrigin(req);
+      const score = updated.report.overall_health_score;
+      const tone = score >= 75 ? "The results look good overall"
+        : score >= 50 ? "Most results look good, with a couple of things worth keeping an eye on"
+        : "A few findings are worth following up on";
+
+      let attachments;
+      try {
+        const pdf = await buildReportPdf(updated, pet);
+        attachments = [{ filename: `${pet.name || 'pet'}-vitarus-report.pdf`, type: 'application/pdf', content: pdf }];
+      } catch (err) {
+        console.error('Report PDF build failed:', err.message);
+      }
+
       await email.send({
         to: pet.owner_email,
-        subject: `${pet.name}'s report is ready to view`,
+        subject: `${pet.name}'s report is ready — signed by Dr. ${req.user.name}`,
         html: email.shell({
           origin,
           title: 'Your pet\'s report is ready',
-          bodyHtml: `<p>Dr. ${req.user.name} has reviewed and signed off on <b>${pet.name}</b>'s diagnostic report — it's now available in your Vitarus portal.</p>
-                     ${email.button('View report', `${origin}/owner/index.html`)}`
-        })
+          bodyHtml: `<p>Good news — Dr. ${req.user.name} has reviewed and signed off on <b>${pet.name}</b>'s diagnostic exam.</p>
+                     <p>${tone}. We've attached the full report as a PDF to this email, written in plain language so it's easy to follow — and it's also waiting for you in your Vitarus portal any time.</p>
+                     ${email.button('View report online', `${origin}/owner/index.html`)}
+                     <p style="margin-top:18px;color:#637784;font-size:12.5px;">If anything in the report is unclear or you have questions, please reach out to your vet directly.</p>`
+        }),
+        attachments
       });
     }
 
-    const updated = await db.prepare('SELECT * FROM exams WHERE id = ?').get(row.id);
-    res.json(await serializeExam(updated, { db }));
+    res.json(updated);
   }));
 
   // ── Admin stats ──────────────────────────────────────────────────────────
