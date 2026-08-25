@@ -495,6 +495,34 @@ function reportSystemsHTML(report, opts) {
   }).join('') + `</div>`;
 }
 
+const MEDIA_KIND_META = { video: { icon: '🎥', label: 'Video note' }, audio: { icon: '🎙️', label: 'Audio note' } };
+
+/* Staff-submitted video/audio, analyzed server-side (server/lib/media-analysis.js)
+   into a plain-text clinical observation. Narrative supporting evidence, not
+   one of the six scored systems — shown as its own section, same in both
+   clinical and owner views since it's already plain language either way. */
+function mediaNotesHTML(report) {
+  const notes = report.media_notes;
+  if (!notes || !notes.length) return '';
+  return `
+    <div class="detail-section-title" style="margin:24px 0 12px;">Video &amp; Audio Notes</div>
+    <div class="media-notes-list">
+      ${notes.map(n => {
+        const meta = MEDIA_KIND_META[n.kind] || { icon: '📎', label: 'Note' };
+        return `
+          <div class="media-note-card">
+            <div class="mn-top">
+              <span class="mn-icon">${meta.icon}</span>
+              <span class="mn-label">${meta.label}</span>
+              ${n.filename ? `<span class="mn-filename">${n.filename}</span>` : ''}
+            </div>
+            <p class="mn-analysis">${n.analysis}</p>
+            ${n.transcript ? `<details class="mn-transcript"><summary>Transcript</summary><p>${n.transcript}</p></details>` : ''}
+          </div>`;
+      }).join('')}
+    </div>`;
+}
+
 /* Urgency-grouped action plan — replaces a single flat bullet list with
    Today / Follow up soon / Routine sections, so the reader doesn't have to
    guess which of ten bullets is actually time-sensitive. Old exams whose
@@ -673,6 +701,15 @@ function pdfSystemBlock(key, label, report, simplified) {
     </div>`;
 }
 
+function pdfMediaNotesHTML(report) {
+  const notes = report.media_notes;
+  if (!notes || !notes.length) return '';
+  return notes.map(n => {
+    const meta = MEDIA_KIND_META[n.kind] || { icon: '📎', label: 'Note' };
+    return `<div class="pdf-media-note"><b>${meta.icon} ${meta.label}${n.filename ? ' — ' + n.filename : ''}</b><p>${n.analysis}</p></div>`;
+  }).join('');
+}
+
 function pdfActionPlanHTML(report) {
   const groups = { today: [], soon: [], routine: [] };
   (report.recommendations || []).forEach(r => {
@@ -799,6 +836,9 @@ function buildReportPdfHtml(report, opts) {
   .pdf-reasoning { font-size: 11.5px; color: #333; line-height: 1.55; margin: 0; }
   .pdf-override-note { margin-top: 8px; font-size: 11px; background: #fff7e0; border: 1px solid #f0dca0; border-radius: 6px; padding: 8px 10px; color: #6b5000; }
   .pdf-recos { font-size: 12.5px; margin: 0 0 0 18px; color: #333; }
+  .pdf-media-note { border: 1px solid #dde3e8; border-left: 4px solid #267ca2; border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; }
+  .pdf-media-note b { font-size: 12px; color: #0a2f4e; }
+  .pdf-media-note p { font-size: 11.5px; color: #333; margin: 6px 0 0; line-height: 1.5; }
   .pdf-action-group { margin-bottom: 14px; }
   .pdf-action-head { display: inline-block; font-size: 10.5px; font-weight: 800; letter-spacing: .4px; padding: 3px 10px; border-radius: 8px; margin-bottom: 6px; }
   .pdf-footer { margin-top: 32px; padding-top: 14px; border-top: 1px solid #e2e8ee; font-size: 10px; color: #99a2b0; }
@@ -835,6 +875,10 @@ function buildReportPdfHtml(report, opts) {
 
   <div class="pdf-section-title">${simplified ? 'By System' : 'Per-System Findings'}</div>
   ${systems}
+
+  ${report.media_notes && report.media_notes.length ? `
+  <div class="pdf-section-title">Video &amp; Audio Notes</div>
+  ${pdfMediaNotesHTML(report)}` : ''}
 
   <div class="pdf-section-title">${simplified ? 'What Happens Next' : 'Recommendations'}</div>
   ${pdfActionPlanHTML(report)}
@@ -887,6 +931,7 @@ function clinicalReportHTML(report, opts, showRawJson) {
     correctionBannerHTML(opts.correctionBanner) +
     aiSummaryHTML(opts) +
     reportSystemsHTML(report, opts) +
+    mediaNotesHTML(report) +
     actionPlanHTML(report, opts) +
     (showRawJson ? reportRawJsonHTML(report) : '');
 }
@@ -905,6 +950,7 @@ function ownerReportHTML(report, opts) {
     reassuringHTML(report) +
     `<div class="detail-section-title" style="margin:28px 0 12px;">Findings by system</div>` +
     reportSystemsHTML(report, opts) +
+    mediaNotesHTML(report) +
     `<div class="detail-section-title" style="margin:28px 0 12px;">Action plan</div>` +
     actionPlanHTML(report, opts);
 }

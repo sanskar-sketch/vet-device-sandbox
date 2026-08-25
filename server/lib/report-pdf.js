@@ -320,6 +320,22 @@ function buildReportPdf(exam, pet, photo) {
       doc.moveDown(0.5);
     }
 
+    // ── Video & audio notes — narrative supporting evidence, not a scored
+    //    system (see server/lib/media-analysis.js) ─────────────────────────
+    if (report.media_notes && report.media_notes.length) {
+      if (doc.y > 680) doc.addPage();
+      doc.font('Helvetica-Bold').fontSize(13).fillColor(NAVY).text('Video & Audio Notes');
+      doc.moveDown(0.3);
+      for (const note of report.media_notes) {
+        if (doc.y > 700) doc.addPage();
+        const label = note.kind === 'video' ? 'Video note' : note.kind === 'audio' ? 'Audio note' : 'Note';
+        doc.font('Helvetica-Bold').fontSize(10.5).fillColor(NAVY)
+          .text(`${label}${note.filename ? ' — ' + note.filename : ''}`, 50, doc.y, { width: 495 });
+        doc.font('Helvetica').fontSize(9.5).fillColor(MUTED).text(note.analysis, 50, doc.y + 2, { width: 495 });
+        doc.moveDown(0.6);
+      }
+    }
+
     // ── Reassuring findings ────────────────────────────────────────────
     const reassuring = ranked.filter(e => e.s.level === 'Low Risk');
     if (reassuring.length) {

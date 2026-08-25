@@ -320,3 +320,19 @@
   padding: 9px 13px; font-size: 13px; display: flex; align-items: center; gap: 8px;
 }
 .action-list li::before { content: "→"; color: var(--blue-light); }
+
+/* Staff-submitted video/audio notes (server/lib/media-analysis.js) — narrative
+   supporting evidence, styled distinctly from the six scored system cards. */
+.media-notes-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; }
+.media-note-card {
+  background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--blue-light);
+  border-radius: var(--radius); padding: 14px 16px;
+}
+.mn-top { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.mn-icon { font-size: 15px; }
+.mn-label { font-weight: 700; font-size: 13px; }
+.mn-filename { font-size: 11.5px; color: var(--text-dim); }
+.mn-analysis { font-size: 13px; color: var(--text); line-height: 1.55; margin: 0; }
+.mn-transcript { margin-top: 8px; border-top: 1px solid var(--border); padding-top: 8px; }
+.mn-transcript summary { cursor: pointer; font-size: 11.5px; font-weight: 600; color: var(--blue-light); list-style: revert; }
+.mn-transcript p { margin: 6px 0 0; font-size: 12px; color: var(--text-muted); line-height: 1.5; }

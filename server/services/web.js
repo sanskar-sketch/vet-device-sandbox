@@ -20,6 +20,7 @@ const http = require('http');
 const db = require('../db');
 const aiNarrative = require('../lib/ai-narrative');
 const aiAssessment = require('../lib/ai-assessment');
+const mediaAnalysis = require('../lib/media-analysis');
 const auth = require('../lib/auth');
 const petsApi = require('../lib/pets-api');
 const examsApi = require('../lib/exams-api');
@@ -68,6 +69,7 @@ async function main() {
   app.use('/api', labsApi.router(db));
   app.use('/api', aiNarrative.router());
   app.use('/api', aiAssessment.router());
+  app.use('/api', mediaAnalysis.router());
   app.use('/api', flir.router());
   app.use(express.static(path.join(__dirname, '..', '..')));
 

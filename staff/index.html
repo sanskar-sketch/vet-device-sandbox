@@ -201,6 +201,30 @@
     </div>
 
     <div id="exam-map-container"></div>
+
+    <div class="card" id="media-notes-card" style="margin-top:20px;">
+      <div class="card-header">Video &amp; Audio Notes (optional)</div>
+      <div class="card-body">
+        <p class="text-muted" style="font-size:12px;margin-bottom:12px;">
+          Upload a clip of the patient (gait, behavior) or an audio note — AI transcribes/describes it into a
+          plain-text observation carried alongside the report. Not scored as one of the six systems above.
+        </p>
+        <div class="media-upload-grid">
+          <div class="media-upload-slot">
+            <label class="media-upload-label" for="media-video-input">🎥 Video</label>
+            <input type="file" id="media-video-input" accept="video/mp4,video/quicktime,video/webm,video/x-matroska">
+            <div class="text-muted" id="media-video-status" style="font-size:12px;min-height:16px;margin-top:6px;"></div>
+            <div class="media-result" id="media-video-result" style="display:none;"></div>
+          </div>
+          <div class="media-upload-slot">
+            <label class="media-upload-label" for="media-audio-input">🎙️ Audio</label>
+            <input type="file" id="media-audio-input" accept="audio/mpeg,audio/mp4,audio/wav,audio/webm,audio/x-m4a,audio/ogg,audio/aac">
+            <div class="text-muted" id="media-audio-status" style="font-size:12px;min-height:16px;margin-top:6px;"></div>
+            <div class="media-result" id="media-audio-result" style="display:none;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- ── STEP 4 · Review & Submit for Vet Sign-off ───────────────────────── -->
@@ -282,6 +306,20 @@
     padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600;
     background: rgba(21,149,141,.12); border: 1px solid var(--accent); color: var(--accent);
   }
+
+  .media-upload-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 560px) { .media-upload-grid { grid-template-columns: 1fr; } }
+  .media-upload-slot {
+    background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm);
+    padding: 12px 14px;
+  }
+  .media-upload-label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+  .media-upload-slot input[type="file"] { width: 100%; font-size: 12.5px; }
+  .media-result {
+    margin-top: 10px; padding: 10px 12px; border-radius: var(--radius-sm);
+    background: var(--surface); border: 1px solid var(--border);
+    font-size: 12.5px; line-height: 1.55; color: var(--text); max-height: 180px; overflow-y: auto;
+  }
 </style>
 
 <script src="../js/auth-guard.js?v=2"></script>
@@ -321,6 +359,7 @@ const state = {
   patient: { name: '', species: 'Canine', breed: '', breedKey: '', sex: '', age_years: 5, ownerEmail: '', microchip: null, weight_kg: null, color: '', allergies: '', medicalNotes: '', bcsPhotoId: null, petId: null },
   hwResults: [],
   moduleResults: {},
+  mediaNotes: [],  // [{kind:'video'|'audio', filename, transcript, analysis}] — see media-analysis.js
   report: null,
   submitted: false
 };
@@ -1381,6 +1420,57 @@ document.getElementById('btn-run-exam').addEventListener('click', async () => {
   document.getElementById('btn-to-report').disabled = MODULES.some(m => !state.moduleResults[m.key]);
 });
 
+/* ── Video/Audio Notes — optional, not one of the six scored systems ────────
+   Uploads straight to server/lib/media-analysis.js on file select (same
+   auto-upload-on-select pattern as the owner portal's photo picker) and
+   stores the plain-text result in state.mediaNotes, keyed by kind so
+   re-uploading a slot replaces rather than duplicates it. */
+async function uploadMediaFile(kind, file) {
+  const statusEl = document.getElementById(`media-${kind}-status`);
+  const resultEl = document.getElementById(`media-${kind}-result`);
+  statusEl.style.color = 'var(--text-muted)';
+  statusEl.textContent = 'Uploading & analyzing… (can take up to a minute for video)';
+  resultEl.style.display = 'none';
+  state.mediaNotes = state.mediaNotes.filter(n => n.kind !== kind);
+
+  try {
+    const fd = new FormData();
+    fd.append('media', file);
+    fd.append('patient', JSON.stringify(state.patient));
+    const res = await fetch('/api/media-analysis', { method: 'POST', credentials: 'same-origin', body: fd });
+    if (!res.ok) throw new Error((await res.json()).error || 'upload failed');
+    const data = await res.json();
+
+    if (!data.analysis) {
+      statusEl.style.color = 'var(--red)';
+      statusEl.textContent = data.reason === 'no_api_key' ? 'AI analysis unavailable — no OPENAI_API_KEY configured on the server.'
+        : data.reason === 'empty_transcript' ? 'No speech detected in this clip.'
+        : data.reason === 'no_frames_or_audio' ? 'Could not extract any frames or audio from this file.'
+        : `Analysis failed${data.message ? ': ' + data.message : ''}.`;
+      return;
+    }
+
+    statusEl.style.color = '#3fb950';
+    statusEl.textContent = `Analyzed ${file.name}`;
+    resultEl.style.display = 'block';
+    resultEl.textContent = data.analysis;
+    state.mediaNotes.push({ kind, filename: file.name, transcript: data.transcript || '', analysis: data.analysis });
+  } catch (e) {
+    statusEl.style.color = 'var(--red)';
+    statusEl.textContent = e.message;
+  }
+}
+document.getElementById('media-video-input').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (file) uploadMediaFile('video', file);
+  e.target.value = '';
+});
+document.getElementById('media-audio-input').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (file) uploadMediaFile('audio', file);
+  e.target.value = '';
+});
+
 /* ── STEP 4 · Review & Submit ─────────────────────────────────────────────── */
 async function loadVetOptions() {
   const sel = document.getElementById('assign-vet-select');
@@ -1450,6 +1540,10 @@ document.getElementById('btn-to-report').addEventListener('click', async () => {
 
   try {
     const { report, aiScored } = await buildReport();
+    // Narrative supporting evidence, not a scored system — kept separate
+    // from fusion-engine.js's systems/recommendations, rendered as its own
+    // section (see report-view.js's mediaNotesHTML).
+    report.media_notes = state.mediaNotes;
     state.report = report;
     state.submitted = false;
     document.getElementById('submit-status').textContent = aiScored
@@ -1518,6 +1612,7 @@ document.getElementById('btn-restart').addEventListener('click', () => {
   state.patient = { name: '', species: 'Canine', breed: '', breedKey: '', sex: '', age_years: 5, ownerEmail: '', microchip: null, weight_kg: null, color: '', allergies: '', medicalNotes: '', bcsPhotoId: null, petId: null };
   state.hwResults = [];
   state.moduleResults = {};
+  state.mediaNotes = [];
   state.report = null;
   state.submitted = false;
   document.getElementById('p-name').value = '';
@@ -1539,6 +1634,13 @@ document.getElementById('btn-restart').addEventListener('click', () => {
   document.getElementById('detect-map-container').innerHTML = '';
   document.getElementById('exam-map-container').innerHTML = '';
   document.getElementById('scan-console').innerHTML = '';
+  ['video', 'audio'].forEach(kind => {
+    document.getElementById(`media-${kind}-input`).value = '';
+    document.getElementById(`media-${kind}-status`).textContent = '';
+    const resultEl = document.getElementById(`media-${kind}-result`);
+    resultEl.style.display = 'none';
+    resultEl.textContent = '';
+  });
   document.getElementById('report-content').innerHTML = '';
   document.getElementById('submit-status').textContent = '';
   document.getElementById('assign-vet-select').value = '';
