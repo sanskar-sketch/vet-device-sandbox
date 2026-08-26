@@ -507,25 +507,179 @@ document.getElementById('btn-patient-modal-close').addEventListener('click', () 
 /* ══════════════════════════════════════════════════════════════════════════
    TAB 4 — Clinic Accounts (create vet/staff/admin)
    ══════════════════════════════════════════════════════════════════════════ */
+let clinicAccounts = [];
+
 async function loadClinicAccounts() {
   const el = document.getElementById('clinic-accounts-body');
-  el.innerHTML = '<tr><td colspan="4" class="text-muted" style="padding:14px;">Loading…</td></tr>';
+  el.innerHTML = '<tr><td colspan="6" class="text-muted" style="padding:14px;">Loading…</td></tr>';
+
+  // Lab filter only means anything for super_admin — a regular admin's
+  // accounts are already all in their own lab.
+  document.getElementById('accounts-filter-lab-group').style.display =
+    currentUser.role === 'super_admin' ? 'block' : 'none';
+  if (currentUser.role === 'super_admin') populateAccountsLabFilter();
+
   try {
     const res = await fetch('/api/auth/users', { credentials: 'same-origin' });
-    const users = await res.json();
-    el.innerHTML = users.length
-      ? users.map(u => `
-          <tr>
-            <td>${u.name}</td>
-            <td class="text-muted">${u.email}</td>
-            <td><span class="tag">${u.role}</span></td>
-            <td class="text-muted">${new Date(u.created_at).toLocaleString()}</td>
-          </tr>`).join('')
-      : '<tr><td colspan="4" class="text-muted" style="padding:14px;">No clinic accounts yet.</td></tr>';
+    clinicAccounts = await res.json();
+    renderClinicAccountsTable();
   } catch {
-    el.innerHTML = '<tr><td colspan="4" class="text-muted" style="padding:14px;">Could not load.</td></tr>';
+    el.innerHTML = '<tr><td colspan="6" class="text-muted" style="padding:14px;">Could not load.</td></tr>';
   }
 }
+
+async function populateAccountsLabFilter() {
+  const sel = document.getElementById('accounts-filter-lab');
+  if (sel.options.length > 1) return; // already populated this session
+  try {
+    const res = await fetch('/api/labs', { credentials: 'same-origin' });
+    const labs = await res.json();
+    sel.innerHTML = '<option value="">All labs</option>' +
+      labs.map(l => `<option value="${l.id}">${l.name}</option>`).join('');
+  } catch {}
+}
+
+function renderClinicAccountsTable() {
+  const el = document.getElementById('clinic-accounts-body');
+  const q = document.getElementById('accounts-search').value.trim().toLowerCase();
+  const roleFilter = document.getElementById('accounts-filter-role').value;
+  const labFilter = document.getElementById('accounts-filter-lab').value;
+
+  const filtered = clinicAccounts.filter(u => {
+    if (roleFilter && u.role !== roleFilter) return false;
+    if (labFilter && String(u.lab_id) !== labFilter) return false;
+    if (q && !(u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q))) return false;
+    return true;
+  });
+
+  if (!clinicAccounts.length) {
+    el.innerHTML = '<tr><td colspan="6" class="text-muted" style="padding:14px;">No clinic accounts yet.</td></tr>';
+    return;
+  }
+  if (!filtered.length) {
+    el.innerHTML = '<tr><td colspan="6" class="text-muted" style="padding:14px;">No accounts match this filter.</td></tr>';
+    return;
+  }
+
+  el.innerHTML = filtered.map(u => `
+    <tr>
+      <td>${u.name}</td>
+      <td class="text-muted">${u.email}</td>
+      <td><span class="tag">${u.role}</span></td>
+      <td class="text-muted">${u.lab_name || '—'}</td>
+      <td class="text-muted">${new Date(u.created_at).toLocaleString()}</td>
+      <td>${currentUser.role === 'super_admin'
+        ? `<button class="btn btn-secondary" data-edit-user="${u.id}" style="padding:4px 10px;font-size:11.5px;">Edit</button>`
+        : '<span class="text-muted">—</span>'}</td>
+    </tr>`).join('');
+
+  el.querySelectorAll('[data-edit-user]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const user = clinicAccounts.find(u => String(u.id) === btn.getAttribute('data-edit-user'));
+      if (user) openEditUserModal(user);
+    });
+  });
+}
+
+document.getElementById('accounts-search').addEventListener('input', renderClinicAccountsTable);
+document.getElementById('accounts-filter-role').addEventListener('change', renderClinicAccountsTable);
+document.getElementById('accounts-filter-lab').addEventListener('change', renderClinicAccountsTable);
+
+/* ── Edit / delete a clinic account (super_admin only — server also
+   enforces this; the Edit button itself is only rendered for them) ────── */
+async function openEditUserModal(user) {
+  document.getElementById('edit-user-id').value = user.id;
+  document.getElementById('edit-user-name').value = user.name || '';
+  document.getElementById('edit-user-email').value = user.email || '';
+  document.getElementById('edit-user-phone').value = user.phone || '';
+  document.getElementById('edit-user-specialty').value = user.specialty || '';
+  document.getElementById('edit-user-clinic-name').value = user.clinic_name || '';
+  document.getElementById('edit-user-address').value = user.address || '';
+  document.getElementById('edit-user-role').value = user.role;
+  document.getElementById('edit-user-status').textContent = '';
+  document.getElementById('delete-user-confirm').style.display = 'none';
+  document.getElementById('delete-user-name').textContent = user.name;
+
+  const labSel = document.getElementById('edit-user-lab');
+  try {
+    const res = await fetch('/api/labs', { credentials: 'same-origin' });
+    const labs = await res.json();
+    labSel.innerHTML = '<option value="">— No lab —</option>' +
+      labs.map(l => `<option value="${l.id}">${l.name}</option>`).join('');
+  } catch {
+    labSel.innerHTML = '<option value="">— No lab —</option>';
+  }
+  labSel.value = user.lab_id != null ? String(user.lab_id) : '';
+
+  document.getElementById('edit-user-modal-overlay').style.display = 'flex';
+}
+
+document.getElementById('btn-edit-user-close').addEventListener('click', () => {
+  document.getElementById('edit-user-modal-overlay').style.display = 'none';
+});
+
+document.getElementById('btn-save-user').addEventListener('click', async () => {
+  const id = document.getElementById('edit-user-id').value;
+  const btn = document.getElementById('btn-save-user');
+  const statusEl = document.getElementById('edit-user-status');
+  const labVal = document.getElementById('edit-user-lab').value;
+
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    const res = await fetch(`/api/auth/users/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({
+        name: document.getElementById('edit-user-name').value.trim(),
+        email: document.getElementById('edit-user-email').value.trim(),
+        phone: document.getElementById('edit-user-phone').value.trim() || null,
+        specialty: document.getElementById('edit-user-specialty').value.trim() || null,
+        clinic_name: document.getElementById('edit-user-clinic-name').value.trim() || null,
+        address: document.getElementById('edit-user-address').value.trim() || null,
+        role: document.getElementById('edit-user-role').value,
+        lab_id: labVal ? Number(labVal) : null
+      })
+    });
+    if (!res.ok) throw new Error((await res.json()).error || 'could not save changes');
+    document.getElementById('edit-user-modal-overlay').style.display = 'none';
+    loadClinicAccounts();
+    loadOverview();
+  } catch (e) {
+    statusEl.style.color = 'var(--red)';
+    statusEl.textContent = e.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Save changes';
+  }
+});
+
+document.getElementById('btn-delete-user').addEventListener('click', () => {
+  document.getElementById('delete-user-confirm').style.display = 'block';
+});
+document.getElementById('btn-cancel-delete-user').addEventListener('click', () => {
+  document.getElementById('delete-user-confirm').style.display = 'none';
+});
+document.getElementById('btn-confirm-delete-user').addEventListener('click', async () => {
+  const id = document.getElementById('edit-user-id').value;
+  const btn = document.getElementById('btn-confirm-delete-user');
+  const statusEl = document.getElementById('edit-user-status');
+  btn.disabled = true; btn.textContent = 'Deleting…';
+  try {
+    const res = await fetch(`/api/auth/users/${id}`, { method: 'DELETE', credentials: 'same-origin' });
+    if (!res.ok) throw new Error((await res.json()).error || 'could not delete account');
+    document.getElementById('edit-user-modal-overlay').style.display = 'none';
+    loadClinicAccounts();
+    loadOverview();
+  } catch (e) {
+    statusEl.style.color = 'var(--red)';
+    statusEl.textContent = e.message;
+    document.getElementById('delete-user-confirm').style.display = 'none';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Yes, delete permanently';
+  }
+});
 
 document.getElementById('btn-create-user').addEventListener('click', async () => {
   const name     = document.getElementById('new-user-name').value.trim();

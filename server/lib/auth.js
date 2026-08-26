@@ -208,22 +208,107 @@ function router(db) {
   }));
 
   // ── List clinic accounts (admin / super_admin) ───────────────────────────
-  // super_admin sees everyone including owners; admin sees only their own lab's staff/vet/admin
+  // Clinic roles only (vet/staff/admin/super_admin) for both — owner accounts
+  // are managed via the pets/exams they're attached to, not this table, and
+  // mixing them in here would make the lab filter (below) incoherent since
+  // owners don't belong to a lab. super_admin sees every lab; admin sees
+  // only their own lab's accounts. Joins labs for a display-ready lab_name
+  // rather than making the frontend resolve lab_id itself.
   r.get('/users', requireAuth, ah(async (req, res) => {
     if (!isAdmin(req.user))
       return res.status(403).json({ error: 'not permitted for this role' });
 
     let rows;
     if (req.user.role === 'super_admin') {
-      rows = await db.prepare(
-        'SELECT id, email, role, name, phone, specialty, clinic_name, address, lab_id, created_at, updated_at FROM users ORDER BY created_at DESC'
-      ).all();
+      rows = await db.prepare(`
+        SELECT u.id, u.email, u.role, u.name, u.phone, u.specialty, u.clinic_name, u.address,
+               u.lab_id, l.name AS lab_name, u.created_at, u.updated_at
+        FROM users u LEFT JOIN labs l ON l.id = u.lab_id
+        WHERE u.role != 'owner'
+        ORDER BY u.created_at DESC
+      `).all();
     } else {
-      rows = await db.prepare(
-        "SELECT id, email, role, name, phone, specialty, clinic_name, address, lab_id, created_at, updated_at FROM users WHERE role != 'owner' AND lab_id = ? ORDER BY created_at DESC"
-      ).all(req.user.lab_id || -1);
+      rows = await db.prepare(`
+        SELECT u.id, u.email, u.role, u.name, u.phone, u.specialty, u.clinic_name, u.address,
+               u.lab_id, l.name AS lab_name, u.created_at, u.updated_at
+        FROM users u LEFT JOIN labs l ON l.id = u.lab_id
+        WHERE u.role != 'owner' AND u.lab_id = ?
+        ORDER BY u.created_at DESC
+      `).all(req.user.lab_id || -1);
     }
     res.json(rows);
+  }));
+
+  // ── Edit a clinic account (super_admin only) ──────────────────────────────
+  // Broader than the role/lab-only patch below — covers the profile fields
+  // too, for the Clinic Accounts table's "Edit" action. Any subset of fields
+  // may be provided; omitted ones are left unchanged.
+  r.patch('/users/:id', requireAuth, requireRole('super_admin'), ah(async (req, res) => {
+    const target = await db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
+    if (!target) return res.status(404).json({ error: 'user not found' });
+    if (target.role === 'owner') return res.status(400).json({ error: 'owner accounts are not managed here' });
+
+    const { name, email, phone, specialty, clinic_name, address, role, lab_id } = req.body || {};
+    const validRoles = ['vet', 'staff', 'admin', 'super_admin'];
+    if (role !== undefined && !validRoles.includes(role))
+      return res.status(400).json({ error: `role must be one of: ${validRoles.join(', ')}` });
+    if (email !== undefined) {
+      const existing = await db.prepare('SELECT id FROM users WHERE email = ? AND id != ?').get(email, target.id);
+      if (existing) return res.status(409).json({ error: 'another account already uses that email' });
+    }
+    let newLabId = target.lab_id;
+    if (lab_id !== undefined) {
+      newLabId = lab_id === null ? null : Number(lab_id);
+      if (newLabId != null && !(await db.prepare('SELECT id FROM labs WHERE id = ?').get(newLabId)))
+        return res.status(400).json({ error: 'lab_id does not reference an existing lab' });
+    }
+
+    await db.prepare(`
+      UPDATE users SET name = ?, email = ?, phone = ?, specialty = ?, clinic_name = ?, address = ?,
+        role = ?, lab_id = ?, updated_at = ?
+      WHERE id = ?
+    `).run(
+      name !== undefined ? name : target.name,
+      email !== undefined ? email : target.email,
+      phone !== undefined ? phone : target.phone,
+      specialty !== undefined ? specialty : target.specialty,
+      clinic_name !== undefined ? clinic_name : target.clinic_name,
+      address !== undefined ? address : target.address,
+      role !== undefined ? role : target.role,
+      newLabId,
+      nowISO(),
+      target.id
+    );
+
+    const updated = await db.prepare('SELECT * FROM users WHERE id = ?').get(target.id);
+    res.json(publicUser(updated));
+  }));
+
+  // ── Delete a clinic account (super_admin only) ────────────────────────────
+  // A staff/vet account tied to existing pets/exams (created_by, assigned
+  // vet, signed_by, or event actor — see server/db.js's REFERENCES users(id)
+  // columns, none ON DELETE CASCADE) fails at the DB level with a foreign-
+  // key violation (Postgres 23503) — caught here as a clear 409 instead of
+  // a raw 500, since deleting exam history out from under signed reports
+  // isn't something this endpoint should silently allow anyway.
+  r.delete('/users/:id', requireAuth, requireRole('super_admin'), ah(async (req, res) => {
+    const targetId = Number(req.params.id);
+    if (targetId === req.user.id)
+      return res.status(400).json({ error: 'you cannot delete your own account' });
+
+    const target = await db.prepare('SELECT id, role FROM users WHERE id = ?').get(targetId);
+    if (!target) return res.status(404).json({ error: 'user not found' });
+    if (target.role === 'owner') return res.status(400).json({ error: 'owner accounts are not managed here' });
+
+    try {
+      await db.prepare('DELETE FROM users WHERE id = ?').run(targetId);
+    } catch (err) {
+      if (err.code === '23503') {
+        return res.status(409).json({ error: 'This account has existing pets or exams tied to it and can\'t be deleted — reassign or remove those first.' });
+      }
+      throw err;
+    }
+    res.json({ ok: true });
   }));
 
   // ── List vets (for staff to assign exams) ────────────────────────────────
