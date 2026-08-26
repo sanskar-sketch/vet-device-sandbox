@@ -143,6 +143,13 @@
     </div>
 
     <div class="card" style="margin-top:24px;">
+      <div class="card-header">Appointment Requests <span id="appt-req-badge" style="display:none;background:var(--orange);color:#1a1204;font-size:11px;font-weight:700;border-radius:10px;padding:1px 8px;margin-left:6px;vertical-align:middle;"></span></div>
+      <div class="card-body" id="appt-requests-list">
+        <span class="text-muted">Loading…</span>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:14px;">
       <div class="card-header">My Submitted Exams</div>
       <div class="card-body" id="my-exams-list">
         <span class="text-muted">Loading…</span>
@@ -438,6 +445,60 @@ document.querySelectorAll('[data-back]').forEach(btn => btn.addEventListener('cl
   document.body.style.paddingBottom = '34px';
   document.body.appendChild(banner);
 })();
+
+/* ── Appointment Requests — pending owner-submitted requests for this
+   clinic's lab (server/lib/appointments-api.js). Accepting locks the slot
+   for the whole lab (a partial unique index server-side is the actual
+   guarantee); declining just notifies the owner. Both remove the row from
+   this pending queue via a full reload. ─────────────────────────────────── */
+async function loadAppointmentRequests() {
+  const el = document.getElementById('appt-requests-list');
+  const badge = document.getElementById('appt-req-badge');
+  try {
+    const res = await fetch('/api/appointments?status=pending', { credentials: 'same-origin' });
+    const appts = await res.json();
+
+    if (appts.length) { badge.textContent = appts.length; badge.style.display = 'inline-block'; }
+    else badge.style.display = 'none';
+
+    if (!appts.length) { el.innerHTML = '<span class="text-muted">No pending appointment requests.</span>'; return; }
+
+    el.innerHTML = appts.map(a => {
+      const when = new Date(`${a.requested_date}T00:00:00`).toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
+      return `
+        <div style="display:flex;flex-direction:column;gap:6px;padding:10px 0;border-bottom:1px solid var(--border);">
+          <span><b>${a.owner ? a.owner.name : 'Owner'}</b>${a.pet ? ' · ' + a.pet.name : ''} <span class="text-muted">— ${when} at ${a.requested_time}</span></span>
+          ${a.reason ? `<span class="text-muted" style="font-size:12px;">${a.reason}</span>` : ''}
+          <div style="display:flex;gap:8px;align-items:center;">
+            <button class="btn btn-primary" data-accept-appt="${a.id}" style="padding:5px 12px;font-size:12px;">Accept</button>
+            <button class="btn btn-secondary" data-decline-appt="${a.id}" style="padding:5px 12px;font-size:12px;">Decline</button>
+            <span class="text-muted" id="appt-status-${a.id}" style="font-size:12px;"></span>
+          </div>
+        </div>`;
+    }).join('');
+
+    el.querySelectorAll('[data-accept-appt]').forEach(btn =>
+      btn.addEventListener('click', () => handleAppointmentAction(btn.getAttribute('data-accept-appt'), 'accept')));
+    el.querySelectorAll('[data-decline-appt]').forEach(btn =>
+      btn.addEventListener('click', () => handleAppointmentAction(btn.getAttribute('data-decline-appt'), 'decline')));
+  } catch {
+    el.innerHTML = '<span class="text-muted">Could not load appointment requests.</span>';
+  }
+}
+
+async function handleAppointmentAction(id, action) {
+  const statusEl = document.getElementById(`appt-status-${id}`);
+  if (statusEl) { statusEl.style.color = 'var(--text-muted)'; statusEl.textContent = action === 'accept' ? 'Accepting…' : 'Declining…'; }
+  try {
+    const res = await fetch(`/api/appointments/${id}/${action}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({})
+    });
+    if (!res.ok) throw new Error((await res.json()).error || `could not ${action}`);
+    loadAppointmentRequests();
+  } catch (e) {
+    if (statusEl) { statusEl.style.color = 'var(--red)'; statusEl.textContent = e.message; }
+  }
+}
 
 /* ── My Submitted Exams ──────────────────────────────────────────────────── */
 async function loadMyExams() {
@@ -1662,6 +1723,7 @@ AuthGuard.requireRole('staff', 'admin', 'super_admin').then(user => {
   currentUser = user;
   AuthGuard.renderStrip(user, '#auth-strip-mount');
   loadMyExams();
+  loadAppointmentRequests();
 });
 </script>
 

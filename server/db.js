@@ -127,6 +127,21 @@ async function createSchema() {
       created_at    TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS appointments (
+      id                 SERIAL PRIMARY KEY,
+      owner_user_id      INTEGER NOT NULL REFERENCES users(id),
+      pet_id             INTEGER REFERENCES pets(id),
+      lab_id             INTEGER NOT NULL REFERENCES labs(id),
+      requested_date     TEXT NOT NULL,
+      requested_time     TEXT NOT NULL,
+      reason             TEXT,
+      status             TEXT NOT NULL CHECK(status IN ('pending','accepted','declined','cancelled')) DEFAULT 'pending',
+      handled_by_user_id INTEGER REFERENCES users(id),
+      handled_at         TEXT,
+      decline_reason     TEXT,
+      created_at         TEXT NOT NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_pets_owner_user    ON pets(owner_user_id);
     CREATE INDEX IF NOT EXISTS idx_pets_owner_email   ON pets(owner_email);
     CREATE INDEX IF NOT EXISTS idx_exams_pet          ON exams(pet_id);
@@ -134,6 +149,16 @@ async function createSchema() {
     CREATE INDEX IF NOT EXISTS idx_exams_created_by   ON exams(created_by_user_id);
     CREATE INDEX IF NOT EXISTS idx_exam_events_exam   ON exam_events(exam_id);
     CREATE INDEX IF NOT EXISTS idx_lab_machines_lab   ON lab_machines(lab_id);
+    CREATE INDEX IF NOT EXISTS idx_appointments_owner ON appointments(owner_user_id);
+    CREATE INDEX IF NOT EXISTS idx_appointments_lab   ON appointments(lab_id);
+    CREATE INDEX IF NOT EXISTS idx_appointments_status ON appointments(status);
+    -- The actual double-booking guard: at most one ACCEPTED appointment per
+    -- lab/date/time, enforced at the DB level (not just in application code)
+    -- so a race between two staff accepting overlapping requests can't both
+    -- win. Declined/pending/cancelled rows are excluded so a lab can hold
+    -- many pending requests for the same slot until one is accepted.
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_appointments_slot_lock
+      ON appointments(lab_id, requested_date, requested_time) WHERE status = 'accepted';
   `);
 
   // ── Additive columns — safe to re-run against an existing database ───────

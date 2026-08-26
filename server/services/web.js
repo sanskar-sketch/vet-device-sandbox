@@ -25,6 +25,7 @@ const auth = require('../lib/auth');
 const petsApi = require('../lib/pets-api');
 const examsApi = require('../lib/exams-api');
 const labsApi = require('../lib/labs-api');
+const appointmentsApi = require('../lib/appointments-api');
 const flir = require('../lib/flir');
 const orbbec = require('../lib/orbbec');
 const clarius = require('../lib/clarius');
@@ -67,6 +68,7 @@ async function main() {
   app.use('/api', petsApi.router(db));
   app.use('/api', examsApi.router(db));
   app.use('/api', labsApi.router(db));
+  app.use('/api', appointmentsApi.router(db));
   app.use('/api', aiNarrative.router());
   app.use('/api', aiAssessment.router());
   app.use('/api', mediaAnalysis.router());

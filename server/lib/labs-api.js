@@ -42,6 +42,15 @@ function router(db) {
     res.json(await serializeLab(db, lab));
   }));
 
+  // ── Clinic directory (any signed-in role) ─────────────────────────────────
+  // Just enough to pick a clinic when requesting an appointment — id/name/
+  // address only, never the staff/doctor/machine roster serializeLab() adds
+  // for the admin-only /labs endpoint below.
+  r.get('/labs/directory', requireAuth, ah(async (req, res) => {
+    const rows = await db.prepare('SELECT id, name, address FROM labs ORDER BY name ASC').all();
+    res.json(rows);
+  }));
+
   // ── List labs — super_admin sees all, admin sees only their own ─────────
   r.get('/labs', requireAuth, requireRole('admin', 'super_admin'), ah(async (req, res) => {
     let rows;
