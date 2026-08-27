@@ -561,17 +561,21 @@ function renderClinicAccountsTable() {
     return;
   }
 
-  el.innerHTML = filtered.map(u => `
+  el.innerHTML = filtered.map(u => {
+    const canEdit = currentUser.role === 'super_admin' ||
+      (['vet', 'staff'].includes(u.role) && u.lab_id === currentUser.lab_id);
+    return `
     <tr>
       <td>${u.name}</td>
       <td class="text-muted">${u.email}</td>
       <td><span class="tag">${u.role}</span></td>
       <td class="text-muted">${u.lab_name || '—'}</td>
       <td class="text-muted">${new Date(u.created_at).toLocaleString()}</td>
-      <td>${currentUser.role === 'super_admin'
+      <td>${canEdit
         ? `<button class="btn btn-secondary" data-edit-user="${u.id}" style="padding:4px 10px;font-size:11.5px;">Edit</button>`
         : '<span class="text-muted">—</span>'}</td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
 
   el.querySelectorAll('[data-edit-user]').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -585,8 +589,8 @@ document.getElementById('accounts-search').addEventListener('input', renderClini
 document.getElementById('accounts-filter-role').addEventListener('change', renderClinicAccountsTable);
 document.getElementById('accounts-filter-lab').addEventListener('change', renderClinicAccountsTable);
 
-/* ── Edit / delete a clinic account (super_admin only — server also
-   enforces this; the Edit button itself is only rendered for them) ────── */
+/* ── Edit / delete a clinic account (admin: own-lab vet/staff only;
+   super_admin: any clinic account) ─────────────────────────────────────── */
 async function openEditUserModal(user) {
   document.getElementById('edit-user-id').value = user.id;
   document.getElementById('edit-user-name').value = user.name || '';
@@ -595,21 +599,48 @@ async function openEditUserModal(user) {
   document.getElementById('edit-user-specialty').value = user.specialty || '';
   document.getElementById('edit-user-clinic-name').value = user.clinic_name || '';
   document.getElementById('edit-user-address').value = user.address || '';
-  document.getElementById('edit-user-role').value = user.role;
   document.getElementById('edit-user-status').textContent = '';
   document.getElementById('delete-user-confirm').style.display = 'none';
   document.getElementById('delete-user-name').textContent = user.name;
 
+  const isSuperAdmin = currentUser.role === 'super_admin';
+
+  // ── Role dropdown ──────────────────────────────────────────────────────
+  // admin can only keep the account as vet or staff; super_admin sees all
+  const roleSel = document.getElementById('edit-user-role');
+  roleSel.innerHTML = isSuperAdmin
+    ? `<option value="vet">Vet</option>
+       <option value="staff">Staff</option>
+       <option value="admin">Admin</option>
+       <option value="super_admin">Super Admin</option>`
+    : `<option value="vet">Vet</option>
+       <option value="staff">Staff</option>`;
+  roleSel.value = ['vet', 'staff', 'admin', 'super_admin'].includes(user.role) ? user.role : 'vet';
+
+  // ── Lab selector ───────────────────────────────────────────────────────
+  // admin can't move accounts to a different lab, so hide the picker for them
   const labSel = document.getElementById('edit-user-lab');
-  try {
-    const res = await fetch('/api/labs', { credentials: 'same-origin' });
-    const labs = await res.json();
-    labSel.innerHTML = '<option value="">— No lab —</option>' +
-      labs.map(l => `<option value="${l.id}">${l.name}</option>`).join('');
-  } catch {
-    labSel.innerHTML = '<option value="">— No lab —</option>';
+  const labGroup = labSel.closest('.form-group');
+  if (isSuperAdmin) {
+    labGroup.style.display = '';
+    try {
+      const res = await fetch('/api/labs', { credentials: 'same-origin' });
+      const labs = await res.json();
+      labSel.innerHTML = '<option value="">— No lab —</option>' +
+        labs.map(l => `<option value="${l.id}">${l.name}</option>`).join('');
+    } catch {
+      labSel.innerHTML = '<option value="">— No lab —</option>';
+    }
+    labSel.value = user.lab_id != null ? String(user.lab_id) : '';
+  } else {
+    labGroup.style.display = 'none';
   }
-  labSel.value = user.lab_id != null ? String(user.lab_id) : '';
+
+  // ── Delete button ──────────────────────────────────────────────────────
+  // admin can only delete vet/staff in their own lab (the server enforces
+  // the same scope); hide the button otherwise so the intent is unambiguous
+  const canDelete = isSuperAdmin || ['vet', 'staff'].includes(user.role);
+  document.getElementById('btn-delete-user').style.display = canDelete ? '' : 'none';
 
   document.getElementById('edit-user-modal-overlay').style.display = 'flex';
 }

@@ -239,17 +239,29 @@ function router(db) {
     res.json(rows);
   }));
 
-  // ── Edit a clinic account (super_admin only) ──────────────────────────────
+  // ── Edit a clinic account (admin: own lab's vet/staff only; super_admin: anyone) ──
   // Broader than the role/lab-only patch below — covers the profile fields
   // too, for the Clinic Accounts table's "Edit" action. Any subset of fields
   // may be provided; omitted ones are left unchanged.
-  r.patch('/users/:id', requireAuth, requireRole('super_admin'), ah(async (req, res) => {
+  //
+  // A regular admin's scope mirrors account CREATION's existing restriction
+  // (admin can create vet/staff; only super_admin can create/edit admin
+  // accounts) — same reasoning applied here so an admin can't edit a peer
+  // admin, promote someone to admin, or move an account to a different lab
+  // out from under their own oversight.
+  r.patch('/users/:id', requireAuth, requireRole('admin', 'super_admin'), ah(async (req, res) => {
     const target = await db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
     if (!target) return res.status(404).json({ error: 'user not found' });
     if (target.role === 'owner') return res.status(400).json({ error: 'owner accounts are not managed here' });
 
+    const isSuperAdmin = req.user.role === 'super_admin';
+    if (!isSuperAdmin) {
+      if (target.lab_id !== req.user.lab_id) return res.status(403).json({ error: 'not permitted for this lab' });
+      if (!['vet', 'staff'].includes(target.role)) return res.status(403).json({ error: 'not permitted for this account' });
+    }
+
     const { name, email, phone, specialty, clinic_name, address, role, lab_id } = req.body || {};
-    const validRoles = ['vet', 'staff', 'admin', 'super_admin'];
+    const validRoles = isSuperAdmin ? ['vet', 'staff', 'admin', 'super_admin'] : ['vet', 'staff'];
     if (role !== undefined && !validRoles.includes(role))
       return res.status(400).json({ error: `role must be one of: ${validRoles.join(', ')}` });
     if (email !== undefined) {
@@ -259,6 +271,8 @@ function router(db) {
     let newLabId = target.lab_id;
     if (lab_id !== undefined) {
       newLabId = lab_id === null ? null : Number(lab_id);
+      if (!isSuperAdmin && newLabId !== req.user.lab_id)
+        return res.status(403).json({ error: 'admins cannot move accounts to a different lab' });
       if (newLabId != null && !(await db.prepare('SELECT id FROM labs WHERE id = ?').get(newLabId)))
         return res.status(400).json({ error: 'lab_id does not reference an existing lab' });
     }
@@ -284,21 +298,34 @@ function router(db) {
     res.json(publicUser(updated));
   }));
 
-  // ── Delete a clinic account (super_admin only) ────────────────────────────
+  // ── Delete a clinic account (admin: own lab's vet/staff only; super_admin: anyone) ──
   // A staff/vet account tied to existing pets/exams (created_by, assigned
   // vet, signed_by, or event actor — see server/db.js's REFERENCES users(id)
   // columns, none ON DELETE CASCADE) fails at the DB level with a foreign-
   // key violation (Postgres 23503) — caught here as a clear 409 instead of
   // a raw 500, since deleting exam history out from under signed reports
   // isn't something this endpoint should silently allow anyway.
-  r.delete('/users/:id', requireAuth, requireRole('super_admin'), ah(async (req, res) => {
+  //
+  // Scope mirrors the PATCH rule above: admin can only delete vet/staff
+  // accounts that belong to their own lab; super_admin can delete any
+  // non-owner account.
+  r.delete('/users/:id', requireAuth, requireRole('admin', 'super_admin'), ah(async (req, res) => {
     const targetId = Number(req.params.id);
     if (targetId === req.user.id)
       return res.status(400).json({ error: 'you cannot delete your own account' });
 
-    const target = await db.prepare('SELECT id, role FROM users WHERE id = ?').get(targetId);
+    const target = await db.prepare('SELECT id, role, lab_id FROM users WHERE id = ?').get(targetId);
     if (!target) return res.status(404).json({ error: 'user not found' });
     if (target.role === 'owner') return res.status(400).json({ error: 'owner accounts are not managed here' });
+
+    const isSuperAdmin = req.user.role === 'super_admin';
+    if (!isSuperAdmin) {
+      // admin: can only delete vet/staff in their own lab
+      if (!['vet', 'staff'].includes(target.role))
+        return res.status(403).json({ error: 'not permitted for this account' });
+      if (target.lab_id !== req.user.lab_id)
+        return res.status(403).json({ error: 'not permitted for this lab' });
+    }
 
     try {
       await db.prepare('DELETE FROM users WHERE id = ?').run(targetId);
