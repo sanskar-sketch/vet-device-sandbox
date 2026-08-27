@@ -653,24 +653,33 @@ document.getElementById('btn-save-user').addEventListener('click', async () => {
   const id = document.getElementById('edit-user-id').value;
   const btn = document.getElementById('btn-save-user');
   const statusEl = document.getElementById('edit-user-status');
-  const labVal = document.getElementById('edit-user-lab').value;
+
+  // Only include lab_id in the payload when the lab selector is visible
+  // (super_admin). When it's hidden (admin), omitting the key entirely tells
+  // the server "leave the lab assignment unchanged" — sending null would be
+  // misread as an attempt to clear the lab, triggering a 403.
+  const labGroup = document.getElementById('edit-user-lab').closest('.form-group');
+  const labVisible = labGroup && labGroup.style.display !== 'none';
+  const labVal = labVisible ? document.getElementById('edit-user-lab').value : undefined;
 
   btn.disabled = true; btn.textContent = 'Saving…';
   try {
+    const payload = {
+      name: document.getElementById('edit-user-name').value.trim(),
+      email: document.getElementById('edit-user-email').value.trim(),
+      phone: document.getElementById('edit-user-phone').value.trim() || null,
+      specialty: document.getElementById('edit-user-specialty').value.trim() || null,
+      clinic_name: document.getElementById('edit-user-clinic-name').value.trim() || null,
+      address: document.getElementById('edit-user-address').value.trim() || null,
+      role: document.getElementById('edit-user-role').value,
+    };
+    if (labVisible) payload.lab_id = labVal ? Number(labVal) : null;
+
     const res = await fetch(`/api/auth/users/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'same-origin',
-      body: JSON.stringify({
-        name: document.getElementById('edit-user-name').value.trim(),
-        email: document.getElementById('edit-user-email').value.trim(),
-        phone: document.getElementById('edit-user-phone').value.trim() || null,
-        specialty: document.getElementById('edit-user-specialty').value.trim() || null,
-        clinic_name: document.getElementById('edit-user-clinic-name').value.trim() || null,
-        address: document.getElementById('edit-user-address').value.trim() || null,
-        role: document.getElementById('edit-user-role').value,
-        lab_id: labVal ? Number(labVal) : null
-      })
+      body: JSON.stringify(payload)
     });
     if (!res.ok) throw new Error((await res.json()).error || 'could not save changes');
     document.getElementById('edit-user-modal-overlay').style.display = 'none';
