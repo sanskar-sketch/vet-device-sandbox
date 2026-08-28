@@ -18,12 +18,31 @@ const { Pool } = require('pg');
 const { nowISO } = require('./lib/utils');
 
 if (!process.env.DATABASE_URL) {
-  throw new Error('DATABASE_URL is required (Supabase Postgres connection string)');
+  throw new Error(
+    'DATABASE_URL is required (Postgres connection string).\n' +
+    'For local development, put one in a .env file at the repo root — it is\n' +
+    'gitignored, and npm start loads it via node --env-file-if-exists:\n' +
+    '  DATABASE_URL=postgres://<user>@localhost:5432/vitarus_dev\n' +
+    'Point it at a scratch database, not the deployed one: the schema below\n' +
+    'runs on every boot and seedDemoAccounts() writes demo logins.'
+  );
+}
+
+// Managed Postgres (Supabase, Render, RDS) terminates TLS with a cert chain
+// node won't verify by default, hence rejectUnauthorized:false. A local
+// server usually has SSL compiled off entirely and rejects the handshake
+// outright, so asking for TLS there fails the connection rather than
+// securing it — decided per host, not globally.
+function sslFor(connectionString) {
+  let host = '';
+  try { host = new URL(connectionString).hostname; } catch { /* leave blank */ }
+  const isLocal = host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '';
+  return isLocal ? false : { rejectUnauthorized: false };
 }
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
+  ssl: sslFor(process.env.DATABASE_URL),
 });
 
 function toPositional(sql) {

@@ -8,7 +8,15 @@
 .landing-nav a { color: var(--text); font-size: 12px; font-weight: 700; text-decoration: none; opacity: .72; }
 .landing-nav a:hover { opacity: 1; }
 
-.landing-hero { position: relative; overflow: visible; }
+/* The two orbit rings below are deliberately oversized and offset (760px at
+   right:-170px), so they bleed past the hero on every axis. Horizontally
+   that bleed left the document 164px wider than the viewport at every width
+   tested, 320px to 768px — the public landing page scrolled sideways, and
+   on desktop it did too, just far enough off-screen to go unnoticed.
+   `overflow-x: clip` is the one value that stops the sideways bleed while
+   leaving the vertical bleed intact; `hidden` would force the other axis to
+   scroll and flatten the effect the rings exist for. */
+.landing-hero { position: relative; overflow: visible; overflow-x: clip; }
 .landing-hero::before {
   content: ""; position: absolute; width: 760px; height: 760px; right: -170px; top: -150px;
   border: 1px dashed rgba(21,149,141,.18); border-radius: 50%; pointer-events: none;
@@ -75,6 +83,14 @@
 @keyframes statusBeacon { 0%,100% { transform: scale(.7); opacity: .45; } 50% { transform: scale(1.25); opacity: 1; } }
 
 @media (max-width: 820px) {
+  /* The evidence callouts are absolutely positioned around a wide brand
+     panel. Once the layouts stack, the panel is narrow enough that they land
+     on top of the wordmark and tagline — "ECG_STABLE" sat across the "US" of
+     VITARUS, and the sign-in panel lost a whole line of copy behind them.
+     They're decorative telemetry garnish, so they step aside rather than
+     compete with the words they're framing. */
+  .evidence-callout { display: none; }
+
   .landing-nav a:not(:last-child) { display: none; }
   .landing-hero-copy { align-items: center; text-align: center; }
   .landing-hero-visual { max-width: 420px; width: 100%; margin: 0 auto; }
@@ -85,12 +101,29 @@
   .login-art img { width: 48%; }
 }
 
+@media (max-width: 600px) {
+  /* `justify-content: space-between` on a nowrap flex row gave the status
+     metric whatever width was left over — about 90px — and a 10px monospace
+     string like "SIGN-OFF GATE · ACTIVE" then broke into three stacked lines
+     sitting on top of the headline. Stacking the hero gives the metric its
+     own full-width row, so it stays readable instead of being deleted: it
+     reports whether the sign-off gate is live, which is not decoration. */
+  .owner-welcome, .clinical-strip {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .clinical-strip .clinical-metric { white-space: nowrap; }
+}
+
 @media (max-width: 480px) {
   /* The decorative orbit graphic has no min-width guard, so on a phone the
      flex row squeezes its circle into a lopsided oval instead of wrapping —
      drop it rather than let a 76px decoration fight the headline for space. */
   .owner-welcome .portal-graphic, .clinical-strip .portal-graphic { display: none; }
   .owner-welcome, .clinical-strip { padding: 16px 18px; }
+  /* 20px over three or four lines is a wall of text on a 375px screen. */
+  .owner-welcome h2, .clinical-strip h2 { font-size: 17px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

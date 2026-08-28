@@ -134,6 +134,25 @@ body::before {
   .landing-ctas, .landing-strip { justify-content: center; }
 }
 
+@media (max-width: 980px) {
+  /* The signed-in header lays out brand + wizard stepper + account strip in
+     a nowrap flex row that needs ~985px. Below that it didn't compress, it
+     overflowed the document — 187px of it at 768px, so every tablet and
+     large phone in landscape scrolled sideways and lost the "Log out"
+     button off the right edge. The 600px block below already wrapped it,
+     which was the right fix applied at the wrong threshold.
+
+     The stepper takes its own full-width row rather than being dropped:
+     between 601px and 980px there is ample room for it, and it's the
+     wizard's only progress indicator. */
+  .app-header { flex-wrap: wrap; row-gap: 10px; }
+  .app-header .stepper {
+    order: 3; width: 100%;
+    overflow-x: auto; scrollbar-width: none;
+  }
+  .app-header .stepper::-webkit-scrollbar { display: none; }
+}
+
 @media (max-width: 600px) {
   .app-header, .landing-header { padding-left: 16px; padding-right: 16px; }
   .app-header .stepper { display: none; }

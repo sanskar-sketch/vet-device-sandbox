@@ -58,6 +58,13 @@ body {
 /* ── Patient intake ──────────────────────────────────────────────────────── */
 .intake-layout { display: grid; grid-template-columns: 1fr 300px; gap: 14px; align-items: stretch; }
 @media (max-width: 760px) { .intake-layout { grid-template-columns: 1fr; } }
+/* A grid item's default `min-width: auto` refuses to shrink below its
+   content's min-content width, so the single "1fr" column above resolved to
+   395px inside a 335px container on a 375px phone — pushing the whole staff
+   page 40px wider than the screen and cutting every field, button and
+   paragraph off at the right edge. The track can only honour `1fr` once its
+   items are allowed to be narrower than their contents. */
+.intake-layout > * { min-width: 0; }
 
 .intake-form-card {
   background: linear-gradient(180deg, var(--surface) 0%, var(--surface) 100%);
@@ -82,6 +89,7 @@ body {
 .breed-preview-caption { text-align: center; font-size: 12px; color: var(--text-muted); margin-top: 10px; font-weight: 600; }
 
 .intake-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.intake-grid > * { min-width: 0; }
 .lab-owner-lookup { margin-top: 14px; }
 .lab-owner-lookup p { font-size: 12px; margin-bottom: 10px; }
 .lab-owner-search { display: flex; gap: 8px; }
@@ -112,8 +120,16 @@ body {
 .owner-pet-meta { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
 @media (max-width: 600px) {
   .lab-owner-search, .owner-pet-row { grid-template-columns: 1fr; display: grid; }
+  /* Two intake fields side by side leave ~150px each once the card padding
+     is taken out — narrower than the placeholders they hold. */
+  .intake-grid { grid-template-columns: 1fr; }
+  /* Three capture cards in a row give each ~95px, which truncates their
+     labels; two columns keeps them tappable and readable. */
+  .intake-actions { grid-template-columns: repeat(2, 1fr); }
+  .intake-form-card, .intake-preview-card { padding: 14px; }
 }
 .intake-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.intake-actions > * { min-width: 0; }
 .intake-action-card {
   background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius);
   padding: 14px; text-align: center; cursor: pointer; position: relative;

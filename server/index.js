@@ -23,6 +23,13 @@ const auth = require('./lib/auth');
 const petsApi = require('./lib/pets-api');
 const examsApi = require('./lib/exams-api');
 const labsApi = require('./lib/labs-api');
+// Kept in step with server/services/web.js — these three were mounted there
+// but not here, so appointments, AI assessment and video/audio analysis all
+// 404'd under the local single-process entry point while working fine in
+// production. Anything added to one entry point belongs in both.
+const appointmentsApi = require('./lib/appointments-api');
+const aiAssessment = require('./lib/ai-assessment');
+const mediaAnalysis = require('./lib/media-analysis');
 
 const STATIC_PORT = process.env.PORT || 4173;
 const FLIR_PORT = process.env.FLIR_PORT || 8098;
@@ -45,7 +52,10 @@ async function main() {
   staticApp.use('/api', petsApi.router(db));
   staticApp.use('/api', examsApi.router(db));
   staticApp.use('/api', labsApi.router(db));
+  staticApp.use('/api', appointmentsApi.router(db));
   staticApp.use('/api', aiNarrative.router());
+  staticApp.use('/api', aiAssessment.router());
+  staticApp.use('/api', mediaAnalysis.router());
   staticApp.use(express.static(path.join(__dirname, '..')));
   staticApp.use((err, req, res, next) => {
     console.error(err);

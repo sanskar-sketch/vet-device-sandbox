@@ -322,3 +322,249 @@ canvas { display: block; }
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* ─── Tab bar ──────────────────────────────────────────────────────────────
+   One definition, shared by every portal. This used to be copy-pasted into
+   the <style> block of vet/index.html and admin/index.html — identical rules
+   in two places, and neither survived a phone: `flex-wrap: nowrap` with the
+   default `overflow: visible` meant the tabs past the viewport edge weren't
+   merely clipped, they were unreachable. On a 375px screen the admin console
+   lost "Clinic Accounts" and "Super Admin" entirely, with no scrollbar, no
+   wrap, and nothing on screen to suggest they existed.
+
+   Scrolling the strip is the fix rather than wrapping it: a wrapped tab bar
+   reflows its rows as the active tab changes, so the control you just tapped
+   moves out from under your finger. */
+.tab-bar {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 24px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  /* Vertical must stay visible-but-unscrollable, or the active tab's -1px
+     bottom edge and any badge get clipped by the scroll container. */
+  overflow-y: hidden;
+  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.tab-bar::-webkit-scrollbar { display: none; }
+
+.tab-btn {
+  /* Without `flex: 0 0 auto` the flex container solves the overflow by
+     squeezing every tab instead, which is what turned "Pending Review" and
+     "Patient History" into two-line labels on a phone. */
+  flex: 0 0 auto;
+  white-space: nowrap;
+  scroll-snap-align: start;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 10px 16px;
+  cursor: pointer;
+  transition: color .15s, border-color .15s;
+  margin-bottom: -1px;
+}
+.tab-btn:hover { color: var(--text); }
+.tab-btn.active { color: var(--blue-light); border-bottom-color: var(--blue-light); }
+.tab-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 4px; }
+
+.tab-badge {
+  display: inline-block;
+  background: var(--orange);
+  color: #1a1204;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 10px;
+  padding: 1px 6px;
+  margin-left: 5px;
+  vertical-align: middle;
+}
+
+/* ─── Mobile ───────────────────────────────────────────────────────────────
+   shared.css carried no media queries at all until now, which is why the
+   clinic-side portals degraded so sharply below ~600px: every responsive
+   rule lived in redesign.css/experience.css and covered the landing and
+   login pages, never the shared furniture the signed-in portals are built
+   from. */
+@media (max-width: 600px) {
+  /* A finger is not a mouse pointer. 44px is the documented minimum target;
+     the desktop padding alone gives ~37px. */
+  .tab-btn { padding: 12px 14px; min-height: 44px; }
+
+  /* Any table wide enough to overflow scrolls inside its own card instead of
+     being cut off at the card's edge. `:has()` keeps this to the cards that
+     actually contain a table — the same pattern app.css already uses for
+     empty console cards — so no markup has to change in four portals. */
+  .card-body:has(> .data-table),
+  .card-body:has(> .analyte-table-wrap) {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .card-body:has(> .data-table) > .data-table { min-width: 520px; }
+
+  /* "Log out" was breaking across two lines inside its own button, and the
+     signed-in name was truncating to "Dr. Amara …" while a decorative
+     preview toggle kept its full two-line label. Reverse that priority. */
+  .auth-strip { flex-wrap: wrap; gap: 8px; row-gap: 6px; }
+  .auth-strip-logout { white-space: nowrap; }
+  .auth-strip-name { max-width: none; flex: 1 1 auto; min-width: 0; }
+  .owner-preview-toggle { font-size: 11px; line-height: 1.25; }
+
+  /* iOS Safari zooms the whole page in whenever a focused field is under
+     16px, and every field in this app was 13px — so tapping any input on an
+     iPhone (sign-in, patient intake, booking an appointment) zoomed the
+     layout and left the user to pinch back out. 16px is the threshold, not a
+     style choice; the padding grows with it so fields don't look cramped. */
+  .form-group input, .form-group select, .form-group textarea,
+  input[type="text"], input[type="email"], input[type="password"],
+  input[type="tel"], input[type="number"], input[type="date"],
+  input[type="time"], input[type="search"], input[type="url"],
+  select, textarea {
+    font-size: 16px;
+    padding: 10px 12px;
+  }
+  /* File inputs render their own button chrome; only the label text scales. */
+  input[type="file"] { font-size: 14px; }
+
+  /* 44px minimum on anything tappable. The base .btn is 8px/13px padding,
+     which lands around 32-37px — fine for a cursor, a miss for a thumb. */
+  .btn { min-height: 44px; padding: 10px 18px; font-size: 14px; }
+  .form-group label { font-size: 12.5px; }
+
+  /* Small text links ("Forgot password?") were ~14px tall as touch targets. */
+  .login-form a, .reset-sub a { display: inline-block; padding: 8px 2px; }
+
+  /* Log out sits in every signed-in header and was 26px. It's mounted by
+     auth-guard.js at runtime, which is why a static sweep of the portals
+     misses it — it only shows up once the strip has actually rendered. */
+  .auth-strip-logout { min-height: 44px; padding: 8px 14px; font-size: 13px; }
+}
+
+@media (max-width: 420px) {
+  /* Below this the preview toggle is competing with the account controls for
+     a strip that fits neither. It's a demo/QA affordance for clinic staff,
+     not something anyone needs on a phone. */
+  .owner-preview-toggle { display: none; }
+}
+
+/* ─── Scroll affordance ────────────────────────────────────────────────────
+   The tab bar scrolls horizontally but hides its scrollbar (above), so on a
+   phone nothing indicated that "Clinic Accounts" and "Super Admin" existed
+   past the right edge — the strip just looked like it ended.
+
+   These are `background-attachment: local` scroll shadows: the two
+   page-coloured layers scroll with the content and mask the shadows at
+   either end, so a shadow appears only on the side that still has something
+   to reveal, and nothing shows at all when the strip fits. Pure CSS, no
+   scroll listener.
+
+   Applied to the tab bar only. Wide tables scroll inside .card-body, but
+   their cells paint an opaque background over exactly this area, so the same
+   trick would render nothing there — those keep their native scrollbar,
+   which is visible because .card-body doesn't suppress it. */
+.tab-bar {
+  background-repeat: no-repeat;
+  background-size: 28px 100%, 28px 100%, 14px 100%, 14px 100%;
+  background-position: left center, right center, left center, right center;
+  background-attachment: local, local, scroll, scroll;
+  background-image:
+    linear-gradient(90deg, var(--bg) 45%, transparent),
+    linear-gradient(270deg, var(--bg) 45%, transparent),
+    radial-gradient(farthest-side at 0 50%, rgba(0,0,0,.32), transparent),
+    radial-gradient(farthest-side at 100% 50%, rgba(0,0,0,.32), transparent);
+}
+
+/* ─── File picker ──────────────────────────────────────────────────────────
+   The native <input type="file"> renders an OS-drawn "Choose File / No file
+   chosen" control that ignores the app's theme entirely — a light grey
+   system button sitting in a navy form.
+
+   The input is *visually* hidden, not display:none or hidden, so it keeps
+   its tab stop and screen-reader semantics; the visible zone is its <label>,
+   which means click and Enter open the picker natively with no JS. See
+   js/file-upload.js for the drag-and-drop and selected-file readout. */
+.file-drop { position: relative; }
+.file-drop input[type="file"] {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+}
+.file-drop-zone {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  padding: 14px 16px; cursor: pointer;
+  background: rgba(8,29,48,.4);
+  border: 1px dashed var(--border); border-radius: var(--radius-sm);
+  transition: border-color .15s, background .15s;
+}
+.file-drop-zone:hover { border-color: var(--accent); background: rgba(43,181,166,.07); }
+.file-drop.is-dragging .file-drop-zone { border-color: var(--accent); background: rgba(43,181,166,.14); border-style: solid; }
+.file-drop.is-focused .file-drop-zone { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.file-drop-icon {
+  flex: 0 0 auto; display: grid; place-items: center;
+  width: 38px; height: 38px; border-radius: 10px;
+  background: rgba(43,181,166,.14); border: 1px solid rgba(43,181,166,.3);
+  font-size: 17px; line-height: 1;
+}
+.file-drop-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.file-drop-title { font-size: 13.5px; font-weight: 600; color: var(--text); }
+.file-drop-hint { font-size: 11.5px; color: var(--text-dim); }
+
+/* An explicit `display` in author CSS beats the UA stylesheet's
+   `[hidden] { display: none }`, so both panels would stay visible while the
+   JS thought it had hidden them — the empty "Remove" row is the tell. */
+.file-drop-zone[hidden], .file-drop-selected[hidden] { display: none; }
+.file-drop-selected {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 12px;
+  background: rgba(43,181,166,.08);
+  border: 1px solid rgba(43,181,166,.32); border-radius: var(--radius-sm);
+}
+.file-drop-thumb {
+  flex: 0 0 auto; width: 38px; height: 38px; border-radius: 8px;
+  object-fit: cover; border: 1px solid var(--border);
+}
+.file-drop-selected .file-drop-text { flex: 1 1 auto; }
+.file-drop-name {
+  font-size: 13px; font-weight: 600; color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.file-drop-meta { font-size: 11.5px; color: var(--text-dim); }
+.file-drop-clear {
+  flex: 0 0 auto; background: none; border: 1px solid var(--border);
+  color: var(--text-muted); border-radius: 999px;
+  font-size: 12px; font-weight: 600; padding: 5px 12px; cursor: pointer;
+  transition: color .15s, border-color .15s;
+}
+.file-drop-clear:hover { color: var(--red); border-color: var(--red); }
+.file-drop-clear:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+@media (max-width: 600px) {
+  /* Matches the 44px touch-target floor the rest of the mobile block sets. */
+  .file-drop-zone { padding: 16px; }
+  .file-drop-clear { min-height: 44px; padding: 5px 14px; }
+}
+
+/* ─── Grouped form sections ────────────────────────────────────────────────
+   <fieldset>/<legend> rather than a styled <div>/<h4>: the grouping is a
+   real relationship, and this is the markup screen readers announce for it
+   ("About your pet, Name, edit text") instead of reading ten sibling fields
+   with no context. Browser default fieldset chrome is reset first. */
+.form-section {
+  border: 0; padding: 0; margin: 0 0 22px;
+  border-top: 1px solid var(--border); padding-top: 14px;
+}
+.form-section:first-of-type { border-top: 0; padding-top: 0; }
+.form-section:last-of-type { margin-bottom: 10px; }
+.form-section > legend {
+  padding: 0; font-size: 11.5px; font-weight: 700;
+  letter-spacing: .09em; text-transform: uppercase; color: var(--accent);
+}
+.form-section-optional {
+  margin-left: 8px; font-weight: 600; letter-spacing: .02em;
+  text-transform: none; color: var(--text-dim);
+}

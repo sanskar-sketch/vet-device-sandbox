@@ -45,12 +45,14 @@
           <div style="position:relative;">
             <input id="gate-input" type="password" placeholder="Enter password"
               style="width:100%;box-sizing:border-box;background:rgba(8,32,52,.6);border:1px solid rgba(159,187,208,.28);
-              border-radius:8px;color:#eef5fa;padding:10px 40px 10px 12px;font-size:14px;
+              border-radius:8px;color:#eef5fa;padding:13px 46px 13px 13px;font-size:16px;
               outline:none;transition:border-color .15s;"
               autocomplete="off" autofocus />
             <button id="gate-toggle" tabindex="-1"
-              style="position:absolute;right:10px;top:50%;transform:translateY(-50%);
-              background:none;border:none;cursor:pointer;color:#9fbbd0;font-size:14px;padding:0;">
+              aria-label="Show password"
+              style="position:absolute;right:2px;top:50%;transform:translateY(-50%);
+              background:none;border:none;cursor:pointer;color:#9fbbd0;font-size:15px;
+              width:44px;height:44px;display:flex;align-items:center;justify-content:center;padding:0;">
               👁
             </button>
           </div>
@@ -60,7 +62,7 @@
 
         <button id="gate-submit"
           style="width:100%;background:#2bb5a6;color:#0b2c47;border:none;border-radius:8px;
-          padding:11px;font-size:14px;font-weight:700;cursor:pointer;transition:background .15s;">
+          padding:13px;font-size:15px;font-weight:700;min-height:46px;cursor:pointer;transition:background .15s;">
           Unlock →
         </button>
       </div>
@@ -85,7 +87,9 @@
 
     // Show/hide password
     toggle.addEventListener('click', () => {
-      input.type = input.type === 'password' ? 'text' : 'password';
+      const shown = input.type === 'password';
+      input.type = shown ? 'text' : 'password';
+      toggle.setAttribute('aria-label', shown ? 'Hide password' : 'Show password');
     });
 
     // Focus styling

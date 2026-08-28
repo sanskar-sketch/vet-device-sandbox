@@ -8,13 +8,20 @@
     {
       "name": "vitarus-static",
       "runtimeExecutable": "python3",
-      "runtimeArgs": ["-m", "http.server", "4173"],
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "4173"
+      ],
       "port": 4173
     },
     {
       "name": "vitarus-backend",
       "runtimeExecutable": "node",
-      "runtimeArgs": ["server/index.js"],
+      "runtimeArgs": [
+        "--env-file-if-exists=.env",
+        "server/index.js"
+      ],
       "port": 4173
     }
   ]

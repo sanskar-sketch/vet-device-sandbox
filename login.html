@@ -2,16 +2,26 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<script src="js/access-gate.js?v=2"></script>
+<script src="js/access-gate.js?v=3"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <title>Sign in · Vitarus</title>
-<link rel="stylesheet" href="css/shared.css?v=3">
-<link rel="stylesheet" href="css/redesign.css?v=4">
+<link rel="stylesheet" href="css/shared.css?v=7">
+<link rel="stylesheet" href="css/redesign.css?v=5">
 <style>
-  body { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 24px; }
+  body {
+    display: flex; align-items: center; justify-content: center;
+    min-height: 100vh; padding: 24px;
+    /* The decorative orbit rings are absolutely positioned 42-58px outside
+       their cards, which pushed a horizontal scrollbar onto the page around
+       1024px — real content always fit. `clip` rather than `hidden` because
+       it doesn't create a scroll container (so nothing inside loses sticky
+       or scroll-into-view), and browsers without it simply keep today's
+       behaviour. */
+    overflow-x: clip;
+  }
   .login-wrap { width: 100%; max-width: 380px; }
-  body .login-layout { grid-template-columns: minmax(0, 1.2fr) 440px; max-width: clamp(1120px, 88vw, 1700px); gap: 64px; }
+  body .login-layout { grid-template-columns: minmax(0, 1.2fr) 440px; max-width: min(100%, clamp(1120px, 88vw, 1700px)); gap: clamp(28px, 4vw, 64px); }
   .login-brand { display: none; }
   .login-wordmark-panel {
     position: relative; isolation: isolate; text-align: center; color: var(--heading);
@@ -90,8 +100,8 @@
   }
   .login-hint code { color: var(--blue-light); font-family: var(--font-mono); }
 </style>
-<link rel="stylesheet" href="css/redesign.css?v=4">
-<link rel="stylesheet" href="css/experience.css?v=2">
+<link rel="stylesheet" href="css/redesign.css?v=5">
+<link rel="stylesheet" href="css/experience.css?v=5">
 </head>
 <body>
 

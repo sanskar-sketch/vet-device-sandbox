@@ -2,12 +2,12 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<script src="../js/access-gate.js?v=2"></script>
+<script src="../js/access-gate.js?v=3"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <title>Vitarus · Owner Portal</title>
-<link rel="stylesheet" href="../css/shared.css?v=3">
-<link rel="stylesheet" href="../css/redesign.css?v=4">
+<link rel="stylesheet" href="../css/shared.css?v=7">
+<link rel="stylesheet" href="../css/redesign.css?v=5">
 <link rel="stylesheet" href="../css/report.css?v=6">
 <style>
   .wizard-body { max-width: clamp(900px, 95vw, 1600px); margin: 0 auto; padding: 28px 24px 60px; }
@@ -72,7 +72,14 @@
 
   /* ── Add pet form ── */
   .add-pet-card { margin-top: 20px; }
-  .add-pet-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+  /* `minmax(0, 1fr)` rather than a bare `1fr`: a plain `1fr` track is floored
+     at its items' min-content width, and the file input in the photo row has
+     an intrinsic width of about 300px. On a 320px screen that widened every
+     column to 302px inside a 254px card, pushing the whole form 15px past
+     the right edge. minmax(0, …) lets the track actually shrink. */
+  .add-pet-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; margin-top: 10px; }
+  .add-pet-grid > * { min-width: 0; }
+  .add-pet-grid input[type="file"] { max-width: 100%; }
   .add-pet-grid .span-2 { grid-column: 1/-1; }
 
   .breed-picker { position: relative; }
@@ -106,7 +113,7 @@
     /* Two fixed columns leave each field ~170px wide on a phone — cramped
        for a breed search box or a placeholder like "e.g. 22.5". Stack
        instead; .span-2 fields already spanned the full row either way. */
-    .add-pet-grid { grid-template-columns: 1fr; }
+    .add-pet-grid { grid-template-columns: minmax(0, 1fr); }
     .add-pet-grid .span-2 { grid-column: auto; }
     .detail-pet-banner { flex-wrap: wrap; }
     .pet-profile-grid { grid-template-columns: repeat(2, 1fr); }
@@ -117,9 +124,48 @@
     padding: 8px 24px; font-size: 12.5px; color: var(--text-muted); text-align: center;
   }
   .preview-banner a { color: var(--blue-light); font-weight: 600; }
+
+  /* ── Owner sections ──────────────────────────────────────────────────
+     The three tab panels and the collapsible form cards inside them.
+     `.card`/`.add-pet-card` still styles the edit-pet card over in the pet
+     detail view; these are the list view's own, because a <details> needs
+     its summary to be the clickable header rather than a static bar. */
+  #otab-pets, #otab-appointments, #otab-profile { animation: fadein .18s ease-out; }
+
+  .owner-form-card {
+    margin-top: 20px; background: var(--surface);
+    border: 1px solid var(--border); border-radius: var(--radius);
+  }
+  .owner-form-card > summary {
+    /* list-style:none plus the -webkit- rule below removes the default
+       disclosure triangle in every engine; the ::before marker replaces it
+       so its colour and position match the rest of the card. */
+    list-style: none; cursor: pointer;
+    display: flex; align-items: center; gap: 10px;
+    padding: 13px 16px; min-height: 48px;
+    font-size: 13px; font-weight: 700; color: var(--heading);
+    border-radius: var(--radius);
+  }
+  .owner-form-card > summary::-webkit-details-marker { display: none; }
+  .owner-form-card > summary::before {
+    content: "+"; flex: 0 0 auto;
+    width: 20px; height: 20px; display: grid; place-items: center;
+    border: 1px solid var(--border); border-radius: 50%;
+    color: var(--accent); font-size: 14px; line-height: 1;
+  }
+  .owner-form-card[open] > summary::before { content: "−"; }
+  .owner-form-card > summary:hover { color: var(--accent-hover); }
+  .owner-form-card > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .owner-form-card[open] > summary { border-bottom: 1px solid var(--border); border-radius: var(--radius) var(--radius) 0 0; }
+  .owner-form-card-body { padding: 4px 16px 16px; }
+  /* The profile card is a plain container, not a disclosure — it has no
+     summary to provide the top padding its body would otherwise sit against. */
+  .owner-form-card.is-static { margin-top: 0; }
+  .owner-form-card.is-static .owner-form-card-body { padding-top: 16px; }
+
 </style>
-<link rel="stylesheet" href="../css/redesign.css?v=4">
-<link rel="stylesheet" href="../css/experience.css?v=2">
+<link rel="stylesheet" href="../css/redesign.css?v=5">
+<link rel="stylesheet" href="../css/experience.css?v=5">
 </head>
 <body>
 
@@ -144,18 +190,128 @@
     <div class="portal-graphic" aria-hidden="true"><img src="../assets/brand/vitarus-mark.svg" alt=""></div>
   </section>
 
-  <!-- ── VIEW 1: Pet list ─────────────────────────────────────────────── -->
+  <!-- ── VIEW 1: Pets · Appointments · Profile ─────────────────────────────
+       These three used to be one continuous scroll: the pet list, then the
+       appointment list, then a booking form, then a fourteen-field "add a
+       pet" form, and finally the owner's own contact details — 2,947px on a
+       375px phone, with "My Profile" starting 2,465px down. Nothing was
+       broken, but an owner updating their phone number had to scroll past
+       two forms belonging to entirely different tasks to reach it.
+
+       Splitting them behind the same .tab-bar the vet and admin consoles
+       already use costs no functionality and removes the guesswork. Every
+       id below is unchanged — this is a re-parenting of existing markup,
+       not a rewrite, because the ~1,000 lines of script below address these
+       elements directly. -->
   <div id="view-list">
-    <div class="panel-title">Your Pets</div>
-    <div class="panel-sub">Signed reports only — nothing appears here until a vet has reviewed and released it.</div>
-    <div id="pets-list"><span class="text-muted">Loading…</span></div>
+    <div class="tab-bar" id="owner-tab-bar" role="tablist" aria-label="Owner portal sections">
+      <button class="tab-btn active" role="tab" aria-selected="true" aria-controls="otab-pets" data-otab="pets">
+        My Pets<span class="tab-badge" id="pets-badge" style="display:none;"></span>
+      </button>
+      <button class="tab-btn" role="tab" aria-selected="false" aria-controls="otab-appointments" data-otab="appointments">
+        Appointments<span class="tab-badge" id="appts-badge" style="display:none;"></span>
+      </button>
+      <button class="tab-btn" role="tab" aria-selected="false" aria-controls="otab-profile" data-otab="profile">
+        My Profile
+      </button>
+    </div>
 
-    <div class="detail-section-title" style="margin-top:28px;">Your Appointments</div>
-    <div id="appointments-list"><span class="text-muted">Loading…</span></div>
+    <!-- ── Section: pets ─────────────────────────────────────────────── -->
+    <section id="otab-pets" role="tabpanel">
+      <div class="panel-title">Your Pets</div>
+      <div class="panel-sub">Signed reports only — nothing appears here until a vet has reviewed and released it.</div>
+      <div id="pets-list"><span class="text-muted">Loading…</span></div>
 
-    <div class="card add-pet-card">
-      <div class="card-header">Request an appointment</div>
-      <div class="card-body">
+      <!-- Collapsed by default: on this tab the pets are the content, and an
+           always-open fourteen-field form pushed them off the screen. -->
+      <details class="owner-form-card">
+        <summary>Add a pet</summary>
+        <div class="owner-form-card-body">
+        <!-- Ten fields in one flat grid read as an undifferentiated wall.
+             Grouping them by what they're for — who the pet is, their
+             physical details, anything the vet should know up front — gives
+             the eye somewhere to rest, and <fieldset>/<legend> is what
+             screen readers announce for exactly this relationship. -->
+        <fieldset class="form-section">
+          <legend>About your pet</legend>
+          <div class="add-pet-grid">
+            <div class="form-group"><label>Name</label><input type="text" id="new-pet-name" placeholder="e.g. Biscuit"></div>
+            <div class="form-group"><label>Species</label>
+              <select id="new-pet-species"><option>Canine</option><option>Feline</option></select>
+            </div>
+            <div class="form-group span-2"><label>Breed</label>
+            <div class="breed-picker">
+              <input type="text" id="new-pet-breed-search" class="breed-picker-input" placeholder="Search 225+ breeds…" autocomplete="off">
+              <select id="new-pet-breed" class="breed-picker-native"></select>
+              <div id="new-pet-breed-suggestions" class="breed-picker-suggestions" hidden></div>
+            </div>
+          </div>
+            <div class="form-group span-2"><label>Photo (optional)</label>
+          <div class="file-drop" data-file-drop>
+            <input type="file" id="new-pet-photo" accept="image/*">
+            <label class="file-drop-zone" for="new-pet-photo">
+              <span class="file-drop-icon" aria-hidden="true">&#128247;</span>
+              <span class="file-drop-text">
+                <span class="file-drop-title">Add a photo</span>
+                <span class="file-drop-hint">Drag an image here, or click to browse</span>
+              </span>
+            </label>
+            <div class="file-drop-selected" hidden>
+            <img class="file-drop-thumb" alt="" hidden>
+              <span class="file-drop-text">
+                <span class="file-drop-name"></span>
+                <span class="file-drop-meta"></span>
+              </span>
+              <button type="button" class="file-drop-clear">Remove</button>
+            </div>
+          </div>
+          </div>
+        </fieldset>
+
+        <fieldset class="form-section">
+          <legend>Details</legend>
+          <div class="add-pet-grid">
+            <div class="form-group"><label>Sex</label>
+            <select id="new-pet-sex">
+              <option>Male (Intact)</option>
+              <option>Male (Neutered)</option>
+              <option>Female (Intact)</option>
+              <option>Female (Spayed)</option>
+            </select>
+          </div>
+            <div class="form-group"><label>Age (years)</label><input type="number" id="new-pet-age" min="0" max="25" step="0.5" placeholder="e.g. 3"></div>
+            <div class="form-group"><label>Weight (kg)</label><input type="number" id="new-pet-weight" min="0" step="0.1" placeholder="e.g. 22.5"></div>
+            <div class="form-group"><label>Color / Markings</label><input type="text" id="new-pet-color" placeholder="e.g. Black &amp; tan"></div>
+          </div>
+        </fieldset>
+
+        <fieldset class="form-section">
+          <legend>Health notes <span class="form-section-optional">optional</span></legend>
+          <div class="add-pet-grid">
+            <div class="form-group span-2"><label>Known allergies</label><input type="text" id="new-pet-allergies" placeholder="e.g. Chicken, penicillin — leave blank if none"></div>
+            <div class="form-group span-2"><label>Existing conditions / notes</label><textarea id="new-pet-notes" rows="2" placeholder="e.g. Mild hip dysplasia"></textarea></div>
+          </div>
+        </fieldset>
+        <div class="new-pet-preview-wrap">
+          <img id="new-pet-preview-img" src="" alt="">
+          <span class="text-muted" id="new-pet-preview-caption" style="font-size:12px;"></span>
+        </div>
+        <div class="text-muted" id="add-pet-status" style="min-height:16px;margin-top:8px;"></div>
+        <button class="btn btn-primary" id="btn-add-pet" style="margin-top:6px;">Add pet</button>
+        </div>
+      </details>
+    </section>
+
+    <!-- ── Section: appointments ─────────────────────────────────────── -->
+    <section id="otab-appointments" role="tabpanel" hidden>
+      <div class="panel-title">Your Appointments</div>
+      <div class="panel-sub">Requests you’ve sent, and where each one stands with the clinic.</div>
+      <div id="appointments-list"><span class="text-muted">Loading…</span></div>
+
+      <!-- Open by default: booking is the reason to be on this tab. -->
+      <details class="owner-form-card" open>
+        <summary>Request an appointment</summary>
+        <div class="owner-form-card-body">
         <div class="add-pet-grid">
           <div class="form-group"><label>Clinic</label><select id="appt-lab"><option value="">Loading clinics…</option></select></div>
           <div class="form-group"><label>Pet</label><select id="appt-pet"><option value="">— General / not sure yet —</option></select></div>
@@ -165,56 +321,16 @@
         </div>
         <div class="text-muted" id="appt-status" style="min-height:16px;margin-top:8px;"></div>
         <button class="btn btn-primary" id="btn-request-appt" style="margin-top:6px;">Request appointment</button>
-      </div>
-    </div>
-
-    <div class="card add-pet-card">
-      <div class="card-header">Add a pet</div>
-      <div class="card-body">
-        <div class="add-pet-grid">
-          <div class="form-group"><label>Name</label><input type="text" id="new-pet-name" placeholder="e.g. Biscuit"></div>
-          <div class="form-group"><label>Species</label>
-            <select id="new-pet-species"><option>Canine</option><option>Feline</option></select>
-          </div>
-          <div class="form-group span-2"><label>Breed</label>
-            <div class="breed-picker">
-              <input type="text" id="new-pet-breed-search" class="breed-picker-input" placeholder="Search 225+ breeds…" autocomplete="off">
-              <select id="new-pet-breed" class="breed-picker-native"></select>
-              <div id="new-pet-breed-suggestions" class="breed-picker-suggestions" hidden></div>
-            </div>
-          </div>
-          <div class="form-group span-2"><label>Photo (optional)</label>
-            <div style="display:flex;align-items:center;gap:10px;">
-              <img id="new-pet-photo-preview" src="" alt="" style="width:40px;height:40px;border-radius:var(--radius-sm);object-fit:cover;border:1px solid var(--border);display:none;">
-              <input type="file" id="new-pet-photo" accept="image/*" style="flex:1;min-width:0;">
-            </div>
-          </div>
-          <div class="form-group"><label>Sex</label>
-            <select id="new-pet-sex">
-              <option>Male (Intact)</option>
-              <option>Male (Neutered)</option>
-              <option>Female (Intact)</option>
-              <option>Female (Spayed)</option>
-            </select>
-          </div>
-          <div class="form-group"><label>Age (years)</label><input type="number" id="new-pet-age" min="0" max="25" step="0.5" placeholder="e.g. 3"></div>
-          <div class="form-group"><label>Weight (kg)</label><input type="number" id="new-pet-weight" min="0" step="0.1" placeholder="e.g. 22.5"></div>
-          <div class="form-group"><label>Color / Markings</label><input type="text" id="new-pet-color" placeholder="e.g. Black & tan"></div>
-          <div class="form-group span-2"><label>Known allergies</label><input type="text" id="new-pet-allergies" placeholder="e.g. Chicken, penicillin — leave blank if none"></div>
-          <div class="form-group span-2"><label>Existing conditions / notes</label><textarea id="new-pet-notes" rows="2" placeholder="e.g. Mild hip dysplasia"></textarea></div>
         </div>
-        <div class="new-pet-preview-wrap">
-          <img id="new-pet-preview-img" src="" alt="">
-          <span class="text-muted" id="new-pet-preview-caption" style="font-size:12px;"></span>
-        </div>
-        <div class="text-muted" id="add-pet-status" style="min-height:16px;margin-top:8px;"></div>
-        <button class="btn btn-primary" id="btn-add-pet" style="margin-top:6px;">Add pet</button>
-      </div>
-    </div>
+      </details>
+    </section>
 
-    <div class="card add-pet-card">
-      <div class="card-header">My Profile</div>
-      <div class="card-body">
+    <!-- ── Section: profile ──────────────────────────────────────────── -->
+    <section id="otab-profile" role="tabpanel" hidden>
+      <div class="panel-title">My Profile</div>
+      <div class="panel-sub">Your contact details, as the clinic sees them.</div>
+      <div class="owner-form-card is-static">
+        <div class="owner-form-card-body">
         <p class="text-muted" style="font-size:12px;margin-bottom:8px;">Updates are saved immediately and visible to the clinic.</p>
         <div class="add-pet-grid">
           <div class="form-group"><label>Full name</label><input type="text" id="owner-prof-name" placeholder="e.g. Alex Johnson"></div>
@@ -226,8 +342,9 @@
           <button class="btn btn-primary" id="btn-save-owner-profile">Save changes</button>
           <span id="owner-profile-status" style="font-size:12.5px;min-height:16px;"></span>
         </div>
+        </div>
       </div>
-    </div>
+    </section>
   </div>
 
   <!-- ── VIEW 2: Pet detail (exam history for one pet) ──────────────── -->
@@ -306,6 +423,7 @@
 </div><!-- /wizard-body -->
 
 <script src="../js/auth-guard.js?v=2"></script>
+<script src="../js/file-upload.js?v=1"></script>
 <script src="../js/utils.js?v=3"></script>
 <script src="../js/report-view.js?v=5"></script>
 <script src="../js/breed-directory.js?v=1"></script>
@@ -331,6 +449,55 @@ const VIEWS = ['view-list', 'view-detail', 'view-report', 'view-compare'];
 function showView(id) {
   VIEWS.forEach(v => document.getElementById(v).style.display = v === id ? 'block' : 'none');
   window.scrollTo({ top: 0 });
+}
+
+// ── Section tabs (inside view-list) ────────────────────────────────────
+// Deliberately independent of showView(): opening a pet and coming back
+// should land on the section you left, so the active tab is plain DOM state
+// that survives the round trip rather than something reset on every return.
+const OWNER_TABS = ['pets', 'appointments', 'profile'];
+
+function showOwnerTab(name) {
+  if (!OWNER_TABS.includes(name)) name = 'pets';
+  OWNER_TABS.forEach(t => {
+    const panel = document.getElementById('otab-' + t);
+    const btn = document.querySelector(`#owner-tab-bar [data-otab="${t}"]`);
+    const on = t === name;
+    panel.hidden = !on;
+    btn.classList.toggle('active', on);
+    btn.setAttribute('aria-selected', String(on));
+  });
+  try { sessionStorage.setItem('vitarusOwnerTab', name); } catch {}
+}
+
+document.getElementById('owner-tab-bar').addEventListener('click', e => {
+  const btn = e.target.closest('[data-otab]');
+  if (btn) showOwnerTab(btn.dataset.otab);
+});
+
+// ← / → across the tab strip, which is what a tablist is expected to do
+// once it carries the role.
+document.getElementById('owner-tab-bar').addEventListener('keydown', e => {
+  if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+  const btns = [...document.querySelectorAll('#owner-tab-bar [data-otab]')];
+  const i = btns.findIndex(b => b.classList.contains('active'));
+  const next = btns[(i + (e.key === 'ArrowRight' ? 1 : btns.length - 1)) % btns.length];
+  showOwnerTab(next.dataset.otab);
+  next.focus();
+  e.preventDefault();
+});
+
+/**
+ * Counts on the tab labels, so a section you aren't looking at can still say
+ * it has something in it — the reason to open Appointments is usually that a
+ * request is outstanding, and that's invisible from the Pets tab otherwise.
+ * Only `pending` is counted: accepted and declined requests are settled.
+ */
+function setOwnerBadge(id, count) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = count;
+  el.style.display = count > 0 ? 'inline-block' : 'none';
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────
@@ -421,6 +588,7 @@ async function loadPets() {
     ]);
     myPets  = await petsRes.json();
     myExams = await examsRes.json();
+    setOwnerBadge('pets-badge', myPets.length);
 
     if (!myPets.length) {
       el.innerHTML = `<span class="text-muted">No pets yet — add one below, or ask the clinic to link your email at intake.</span>`;
@@ -801,8 +969,9 @@ async function loadAppointments() {
   try {
     const res = await fetch('/api/appointments/mine', { credentials: 'same-origin' });
     const appts = await res.json();
+    setOwnerBadge('appts-badge', appts.filter(a => a.status === 'pending').length);
     if (!appts.length) {
-      el.innerHTML = '<span class="text-muted">No appointment requests yet — use the form below to request one.</span>';
+      el.innerHTML = '<span class="text-muted">No requests yet — use the form below to ask a clinic for a slot.</span>';
       return;
     }
     el.innerHTML = appts.map(a => {
@@ -970,18 +1139,10 @@ function resetAddPetForm() {
   document.getElementById('new-pet-color').value = '';
   document.getElementById('new-pet-allergies').value = '';
   document.getElementById('new-pet-notes').value = '';
-  document.getElementById('new-pet-photo').value = '';
-  const preview = document.getElementById('new-pet-photo-preview');
-  preview.src = ''; preview.style.display = 'none';
+  const photo = document.getElementById('new-pet-photo');
+  photo.value = '';
+  photo.dispatchEvent(new Event('change', { bubbles: true }));
 }
-
-document.getElementById('new-pet-photo').addEventListener('change', e => {
-  const file = e.target.files && e.target.files[0];
-  const preview = document.getElementById('new-pet-photo-preview');
-  if (!file) { preview.style.display = 'none'; return; }
-  preview.src = URL.createObjectURL(file);
-  preview.style.display = 'block';
-});
 
 document.getElementById('btn-add-pet').addEventListener('click', async () => {
   const name        = document.getElementById('new-pet-name').value.trim();
@@ -1160,6 +1321,9 @@ AuthGuard.requireRole('owner', 'staff', 'vet', 'admin', 'super_admin').then(asyn
   }
 
   populateOwnerProfile(user);
+  let lastTab = 'pets';
+  try { lastTab = sessionStorage.getItem('vitarusOwnerTab') || 'pets'; } catch {}
+  showOwnerTab(lastTab);
   await loadPets();
   loadAppointmentsUI();
 });

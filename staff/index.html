@@ -2,14 +2,14 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<script src="../js/access-gate.js?v=2"></script>
+<script src="../js/access-gate.js?v=3"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <title>Vitarus · Clinic Dashboard</title>
-<link rel="stylesheet" href="../css/shared.css?v=3">
-<link rel="stylesheet" href="../css/redesign.css?v=4">
-<link rel="stylesheet" href="../css/experience.css?v=2">
-<link rel="stylesheet" href="../css/app.css?v=22">
+<link rel="stylesheet" href="../css/shared.css?v=7">
+<link rel="stylesheet" href="../css/redesign.css?v=5">
+<link rel="stylesheet" href="../css/experience.css?v=5">
+<link rel="stylesheet" href="../css/app.css?v=23">
 <link rel="stylesheet" href="../css/report.css?v=6">
 </head>
 <body>
@@ -217,12 +217,44 @@
         <div class="media-upload-grid">
           <div class="media-upload-slot">
             <label class="media-upload-label" for="media-video-input">🎥 Video</label>
+            <div class="file-drop" data-file-drop>
             <input type="file" id="media-video-input" accept="video/mp4,video/quicktime,video/webm,video/x-matroska">
+            <label class="file-drop-zone" for="media-video-input">
+              <span class="file-drop-icon" aria-hidden="true">&#127909;</span>
+              <span class="file-drop-text">
+                <span class="file-drop-title">Choose a video clip</span>
+                <span class="file-drop-hint">MP4, MOV, WebM or MKV</span>
+              </span>
+            </label>
+            <div class="file-drop-selected" hidden>
+              <span class="file-drop-text">
+                <span class="file-drop-name"></span>
+                <span class="file-drop-meta"></span>
+              </span>
+              <button type="button" class="file-drop-clear">Remove</button>
+            </div>
+          </div>
             <div class="text-muted" id="media-video-status" style="font-size:12px;min-height:16px;margin-top:6px;"></div>
           </div>
           <div class="media-upload-slot">
             <label class="media-upload-label" for="media-audio-input">🎙️ Audio</label>
+            <div class="file-drop" data-file-drop>
             <input type="file" id="media-audio-input" accept="audio/mpeg,audio/mp4,audio/wav,audio/webm,audio/x-m4a,audio/ogg,audio/aac">
+            <label class="file-drop-zone" for="media-audio-input">
+              <span class="file-drop-icon" aria-hidden="true">&#127908;</span>
+              <span class="file-drop-text">
+                <span class="file-drop-title">Choose an audio note</span>
+                <span class="file-drop-hint">MP3, M4A, WAV or OGG</span>
+              </span>
+            </label>
+            <div class="file-drop-selected" hidden>
+              <span class="file-drop-text">
+                <span class="file-drop-name"></span>
+                <span class="file-drop-meta"></span>
+              </span>
+              <button type="button" class="file-drop-clear">Remove</button>
+            </div>
+          </div>
             <div class="text-muted" id="media-audio-status" style="font-size:12px;min-height:16px;margin-top:6px;"></div>
           </div>
         </div>
@@ -321,6 +353,7 @@
 </style>
 
 <script src="../js/auth-guard.js?v=2"></script>
+<script src="../js/file-upload.js?v=1"></script>
 <script src="../js/utils.js?v=3"></script>
 <script src="../js/driver-base.js?v=8"></script>
 <script src="../js/drivers/orbbec.js?v=3"></script>
@@ -1485,14 +1518,14 @@ document.getElementById('media-video-input').addEventListener('change', e => {
   state.pendingMedia.video = file;
   const statusEl = document.getElementById('media-video-status');
   statusEl.style.color = 'var(--text-muted)';
-  statusEl.textContent = file ? `Selected: ${file.name} — analyzed on Continue → Review` : '';
+  statusEl.textContent = file ? 'Analyzed when you continue to Review.' : '';
 });
 document.getElementById('media-audio-input').addEventListener('change', e => {
   const file = e.target.files[0] || null;
   state.pendingMedia.audio = file;
   const statusEl = document.getElementById('media-audio-status');
   statusEl.style.color = 'var(--text-muted)';
-  statusEl.textContent = file ? `Selected: ${file.name} — analyzed on Continue → Review` : '';
+  statusEl.textContent = file ? 'Analyzed when you continue to Review.' : '';
 });
 
 /* Uploads+analyzes whatever was queued on step 3, sequentially (not
