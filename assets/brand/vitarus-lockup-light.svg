@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 70" width="220" height="70" role="img" aria-label="Vitarus — Animal Diagnostics">
+  <!-- Reversed-out variant of vitarus-lockup.svg, for the navy brand panels
+       (landing hero, sign-in panel, email letterhead). Same geometry — only
+       the two text fills change. -->
+  <text x="1" y="38" font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
+        font-size="46" font-weight="700" letter-spacing="2.5" fill="#FFFFFF">VITARUS</text>
+  <rect x="77" y="44" width="31.9" height="5.5" rx="1" fill="#2BB5A6"/>
+  <text x="0.8" y="65" font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
+        font-size="13" font-weight="400" letter-spacing="4.12" fill="#9FBBD0">ANIMAL DIAGNOSTICS</text>
+</svg>

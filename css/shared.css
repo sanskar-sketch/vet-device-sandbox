@@ -1,5 +1,5 @@
 /* ─── Vitarus · Shared Styles ─────────────────────────────────────────────
-   Brand palette derived from Logo.png: navy silhouette + teal accent ring,
+   Brand palette derived from the Vitarus wordmark: deep navy + teal rule,
    with six module colors matching the diagnostic-instrument color wheel. */
 :root {
   --bg: #0a1420;
@@ -20,8 +20,10 @@
   --radius-sm: 4px;
 
   /* Brand */
-  --brand-navy: #0a2f4e;
-  --brand-teal: #17908a;
+  --brand-navy: #123a5c;
+  --brand-teal: #2bb5a6;
+  --heading: #f4f9fd;
+  --on-accent: #08293f;
 
   /* Diagnostic-module colors (match the logo's instrument wheel) */
   --mod-thermal: #d3554a;
@@ -151,7 +153,7 @@ body {
   transition: background .15s, opacity .15s;
 }
 .btn:disabled { opacity: .5; cursor: not-allowed; }
-.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary { background: var(--accent); color: var(--on-accent); }
 .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
 .btn-secondary { background: var(--surface-2); color: var(--text); border: 1px solid var(--border); }
 .btn-secondary:hover:not(:disabled) { background: var(--border); }

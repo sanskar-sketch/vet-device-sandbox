@@ -2,12 +2,12 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<script src="js/access-gate.js"></script>
+<script src="js/access-gate.js?v=2"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <title>Vitarus · Multi-Modal Veterinary Diagnostic Platform</title>
-<link rel="stylesheet" href="css/shared.css?v=2">
-<link rel="stylesheet" href="css/redesign.css?v=3">
+<link rel="stylesheet" href="css/shared.css?v=3">
+<link rel="stylesheet" href="css/redesign.css?v=4">
 <style>
   body {
     background:
@@ -20,13 +20,10 @@
     display: flex; align-items: center; justify-content: space-between;
     padding: 20px 32px; border-bottom: 1px solid var(--border);
   }
-  .landing-brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; }
-  .landing-brand .logo { height: 30px; width: auto; }
   .landing-hero {
     max-width: 760px; margin: 56px auto 80px; padding: 0 24px; text-align: center;
   }
-  .landing-hero-logo { height: 150px; width: auto; margin-bottom: 8px; filter: drop-shadow(0 10px 30px rgba(23,144,138,.25)); }
-  .landing-hero h1 { font-size: 34px; margin-bottom: 14px; line-height: 1.25; }
+    .landing-hero h1 { font-size: 34px; margin-bottom: 14px; line-height: 1.25; }
   .landing-hero p { font-size: 15px; color: var(--text-muted); line-height: 1.6; margin-bottom: 32px; }
   .landing-ctas { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
   .landing-ctas .btn { padding: 12px 22px; font-size: 14px; }
@@ -47,7 +44,7 @@
 
   .landing-section { padding: 64px 24px; border-top: 1px solid var(--border); }
   .landing-section-inner { max-width: clamp(1060px, 95vw, 1800px); margin: 0 auto; }
-  .landing-section h2 { font-size: 28px; color: var(--brand-navy); margin: 0 0 6px; letter-spacing: -.03em; }
+  .landing-section h2 { font-size: 28px; color: var(--heading); margin: 0 0 6px; letter-spacing: -.03em; }
   .landing-section-sub { color: var(--text-muted); font-size: 14px; margin: 0 0 36px; }
 
   .how-steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
@@ -75,13 +72,13 @@
     .how-steps, .module-grid { grid-template-columns: 1fr; }
   }
 </style>
-<link rel="stylesheet" href="css/redesign.css?v=3">
-<link rel="stylesheet" href="css/experience.css?v=1">
+<link rel="stylesheet" href="css/redesign.css?v=4">
+<link rel="stylesheet" href="css/experience.css?v=2">
 </head>
 <body>
 
 <div class="landing-header">
-  <div class="landing-brand"><img class="logo" src="assets/brand/logo-icon-128.png" alt="Vitarus"> Vitarus</div>
+  <div class="landing-brand"><img class="logo" src="assets/brand/vitarus-wordmark-light.svg" alt="Vitarus"></div>
   <nav class="landing-nav" aria-label="Primary navigation">
     <a href="#how-it-works">How it works</a>
     <a href="#diagnostics">Diagnostics</a>
@@ -109,7 +106,12 @@
   </div>
   <div class="landing-hero-visual">
     <div class="landing-signal" aria-hidden="true"></div>
-    <img class="landing-hero-logo" src="assets/brand/logo-icon.png" alt="Vitarus diagnostic mark">
+    <div class="brand-panel landing-hero-panel">
+      <img class="brand-panel-logo" src="assets/brand/vitarus-lockup-light.svg" alt="Vitarus — Animal Diagnostics">
+      <p class="brand-tagline">Precision Preventative Health for Pets</p>
+      <p class="brand-powered">Powered by Multi-Modal Medical Imaging &amp; AI</p>
+      <hr class="brand-rule">
+    </div>
     <div class="evidence-callout one">ECG_STABLE</div>
     <div class="evidence-callout two">THERMAL_MAP · 38.5°C</div>
     <div class="evidence-callout three">GAIT_ASYMMETRY · LOW</div>

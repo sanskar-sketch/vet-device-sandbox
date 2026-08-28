@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Vitarus">
+  <!-- Square mark for favicons and any spot too small for the wordmark: the
+       lockup's own "V" and teal rule, cropped to a tile. Keeps the brand
+       recognisable at 16px, where full text would be unreadable. -->
+  <rect width="64" height="64" rx="14" fill="#123A5C"/>
+  <path d="M15 11 h9.6 L32 32.4 L39.4 11 H49 L36.6 43 h-9.2 Z" fill="#FFFFFF"/>
+  <rect x="19" y="48" width="26" height="5" rx="1" fill="#2BB5A6"/>
+</svg>

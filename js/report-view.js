@@ -791,10 +791,11 @@ function buildReportPdfHtml(report, opts) {
 <style>
   * { box-sizing: border-box; }
   body { font-family: -apple-system, "Segoe UI", sans-serif; color: #1a2230; background: #fff; margin: 0; padding: 40px 46px; }
-  .pdf-header { display: flex; align-items: center; gap: 16px; border-bottom: 3px solid #0a2f4e; padding-bottom: 16px; margin-bottom: 22px; }
-  .pdf-header img { height: 54px; }
-  .pdf-brand-name { font-size: 22px; font-weight: 800; color: #0a2f4e; letter-spacing: .3px; }
-  .pdf-brand-sub { font-size: 11px; color: #6b7686; letter-spacing: .5px; text-transform: uppercase; margin-top: 2px; }
+  .pdf-header { display: flex; align-items: center; gap: 18px; border-bottom: 3px solid #123a5c; padding-bottom: 16px; margin-bottom: 22px; }
+  /* Targeted by class, not a bare .pdf-header img selector — the pet photo
+     is an img in this header too, and must not inherit the logo's sizing. */
+  .pdf-logo { width: 170px; height: auto; }
+  .pdf-brand-sub { font-size: 11px; color: #6b7686; letter-spacing: .5px; text-transform: uppercase; padding-left: 18px; border-left: 1px solid #dbe4ec; }
   .pdf-meta-row { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px 24px; margin-bottom: 20px; font-size: 12.5px; color: #40495a; }
   .pdf-dataqual { background: #fdf2df; border: 1px solid #f0dca0; border-radius: 8px; padding: 12px 16px; margin-bottom: 18px; font-size: 12.5px; color: #6b5000; }
   .pdf-dataqual p { margin: 4px 0 0; }
@@ -803,17 +804,17 @@ function buildReportPdfHtml(report, opts) {
   .pdf-priority-soon, .pdf-urgency-soon { background: #fdf2df; border: 1px solid #f0dca0; }
   .pdf-priority-good, .pdf-urgency-routine { background: #eafaf3; border: 1px solid #b7e4cc; }
   .pdf-priority-kicker { font-size: 10.5px; font-weight: 800; letter-spacing: .5px; margin-bottom: 4px; }
-  .pdf-priority-headline { font-size: 17px; font-weight: 800; color: #0a2f4e; margin-bottom: 4px; }
+  .pdf-priority-headline { font-size: 17px; font-weight: 800; color: #123a5c; margin-bottom: 4px; }
   .pdf-priority p { font-size: 12.5px; margin: 0; }
   .pdf-other-findings { margin-bottom: 18px; }
   .pdf-of-row { font-size: 12px; padding: 6px 0; border-bottom: 1px dashed #e2e8ee; }
   .pdf-bottom-line { font-size: 12.5px; background: #f3f7f9; border-radius: 8px; padding: 10px 14px; margin: 4px 0 18px; }
   .pdf-score-block { display: flex; align-items: center; gap: 22px; background: #f3f7f9; border: 1px solid #dde3e8; border-radius: 10px; padding: 18px 22px; margin-bottom: 8px; }
-  .pdf-score-value { font-size: 44px; font-weight: 800; color: #0a2f4e; }
+  .pdf-score-value { font-size: 44px; font-weight: 800; color: #123a5c; }
   .pdf-score-label { font-size: 12px; color: #6b7686; }
   .pdf-signed-banner { background: #eafaf3; border: 1px solid #b7e4cc; border-radius: 8px; padding: 12px 16px; margin-bottom: 20px; font-size: 12.5px; color: #1c6b41; }
   .pdf-draft-banner { background: #fdf2df; border: 1px solid #f0dca0; border-radius: 8px; padding: 12px 16px; margin-bottom: 20px; font-size: 12.5px; color: #8a5c10; }
-  .pdf-section-title { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: #0a2f4e; border-bottom: 2px solid #e2e8ee; padding-bottom: 6px; margin: 26px 0 14px; }
+  .pdf-section-title { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: #123a5c; border-bottom: 2px solid #e2e8ee; padding-bottom: 6px; margin: 26px 0 14px; }
   .pdf-ai { font-size: 12.5px; line-height: 1.6; color: #333; background: #f8fafb; border: 1px solid #e2e8ee; border-radius: 8px; padding: 14px 16px; }
   .pdf-system { border: 1px solid #dde3e8; border-radius: 8px; padding: 14px 16px; margin-bottom: 12px; page-break-inside: avoid; border-left: 5px solid #ccc; }
   .pdf-system.risk-low { border-left-color: #2e9e5b; }
@@ -837,7 +838,7 @@ function buildReportPdfHtml(report, opts) {
   .pdf-override-note { margin-top: 8px; font-size: 11px; background: #fff7e0; border: 1px solid #f0dca0; border-radius: 6px; padding: 8px 10px; color: #6b5000; }
   .pdf-recos { font-size: 12.5px; margin: 0 0 0 18px; color: #333; }
   .pdf-media-note { border: 1px solid #dde3e8; border-left: 4px solid #267ca2; border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; }
-  .pdf-media-note b { font-size: 12px; color: #0a2f4e; }
+  .pdf-media-note b { font-size: 12px; color: #123a5c; }
   .pdf-media-note p { font-size: 11.5px; color: #333; margin: 6px 0 0; line-height: 1.5; }
   .pdf-action-group { margin-bottom: 14px; }
   .pdf-action-head { display: inline-block; font-size: 10.5px; font-weight: 800; letter-spacing: .4px; padding: 3px 10px; border-radius: 8px; margin-bottom: 6px; }
@@ -856,11 +857,8 @@ function buildReportPdfHtml(report, opts) {
 </style></head>
 <body>
   <div class="pdf-header">
-    <img src="/assets/brand/logo-icon.png" alt="Vitarus">
-    <div>
-      <div class="pdf-brand-name">Vitarus</div>
-      <div class="pdf-brand-sub">Multi-Modal Veterinary Diagnostic Report</div>
-    </div>
+    <img class="pdf-logo" src="/assets/brand/vitarus-lockup.svg" alt="Vitarus — Animal Diagnostics">
+    <div class="pdf-brand-sub">Multi-Modal Veterinary Diagnostic Report</div>
     ${photoBlock}
   </div>
 
@@ -884,7 +882,7 @@ function buildReportPdfHtml(report, opts) {
   ${pdfActionPlanHTML(report)}
 
   <div class="pdf-footer">
-    Vitarus · Multi-Modal Veterinary Diagnostic Platform — this report was generated from six non-sedated
+    Vitarus Animal Diagnostics · Multi-Modal Veterinary Diagnostic Platform — this report was generated from six non-sedated
     diagnostic instruments and, where signed above, reviewed and released by a licensed veterinarian.
   </div>
 

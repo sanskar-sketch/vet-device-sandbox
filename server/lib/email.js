@@ -26,29 +26,47 @@
 const COLORS = {
   bg: '#f5f8f7', surface: '#ffffff', border: '#d8e5e2',
   accent: '#15958d', accentHover: '#0f766f',
-  text: '#12324a', textMuted: '#637784', textDim: '#8798a1'
+  text: '#12324a', textMuted: '#637784', textDim: '#8798a1',
+  brandNavy: '#123a5c', brandTeal: '#2bb5a6', brandSub: '#9fbbd0'
 };
 
 /**
  * Wraps a notification's body HTML in the shared Vitarus letterhead
- * (logo, card, footer). `origin` must be an absolute origin (from
- * utils.appOrigin(req)) — email clients can't resolve relative asset URLs
- * the way the app's own pages can.
+ * (brand band, card, footer).
+ *
+ * Callers still pass `origin` (utils.appOrigin(req)) because button() needs
+ * absolute URLs — email clients can't resolve relative ones — but the shell
+ * itself no longer loads any remote asset, so it doesn't read it.
  */
-function shell({ title, bodyHtml, origin }) {
+function shell({ title, bodyHtml }) {
   return `<div style="background:${COLORS.bg};padding:32px 16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
   <div style="max-width:480px;margin:0 auto;">
-    <div style="text-align:center;margin-bottom:24px;">
-      <img src="${origin}/assets/brand/logo-icon-64.png" width="32" height="32" alt="" style="vertical-align:middle;border-radius:8px;">
-      <span style="font-size:19px;font-weight:700;color:${COLORS.text};vertical-align:middle;margin-left:8px;">Vitarus</span>
-    </div>
-    <div style="background:${COLORS.surface};border:1px solid ${COLORS.border};border-radius:14px;padding:28px;">
+    ${letterhead()}
+    <div style="background:${COLORS.surface};border:1px solid ${COLORS.border};border-top:none;border-radius:0 0 14px 14px;padding:28px;">
       <h1 style="font-size:17px;font-weight:700;color:${COLORS.text};margin:0 0 14px;">${title}</h1>
       <div style="font-size:14px;line-height:1.65;color:${COLORS.text};">${bodyHtml}</div>
     </div>
-    <p style="text-align:center;font-size:11px;color:${COLORS.textDim};margin-top:20px;">Vitarus &middot; Multi-Modal Veterinary Diagnostic Platform</p>
+    <p style="text-align:center;font-size:11px;color:${COLORS.textDim};margin-top:20px;">Vitarus Animal Diagnostics &middot; Multi-Modal Veterinary Diagnostic Platform</p>
   </div>
 </div>`;
+}
+
+/**
+ * The navy brand band above every email's card.
+ *
+ * Set as live HTML text rather than an <img> of the logo, which the rest of
+ * the app uses: Gmail and Outlook.com strip SVG entirely, and most clients
+ * block remote images until the reader opts in — an image-based letterhead
+ * would show as an empty box on first open, which is exactly the moment the
+ * mail needs to look legitimate. The mark is a wordmark, so text reproduces
+ * it faithfully; the teal rule under the "A" is a border-bottom on an inline
+ * span, and a client that drops that still renders "VITARUS" correctly.
+ */
+function letterhead() {
+  return `<div style="background:${COLORS.brandNavy};border-radius:14px 14px 0 0;padding:26px 24px 22px;text-align:center;">
+      <div style="font-family:Helvetica,Arial,sans-serif;font-size:30px;font-weight:700;letter-spacing:3px;line-height:1.15;color:#ffffff;">VIT<span style="border-bottom:4px solid ${COLORS.brandTeal};padding-bottom:5px;">A</span>RUS</div>
+      <div style="font-family:Helvetica,Arial,sans-serif;font-size:10px;letter-spacing:3.6px;color:${COLORS.brandSub};margin-top:16px;">ANIMAL DIAGNOSTICS</div>
+    </div>`;
 }
 
 function button(label, url) {

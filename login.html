@@ -2,55 +2,41 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<script src="js/access-gate.js"></script>
+<script src="js/access-gate.js?v=2"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <title>Sign in · Vitarus</title>
-<link rel="stylesheet" href="css/shared.css?v=2">
-<link rel="stylesheet" href="css/redesign.css?v=3">
+<link rel="stylesheet" href="css/shared.css?v=3">
+<link rel="stylesheet" href="css/redesign.css?v=4">
 <style>
   body { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 24px; }
   .login-wrap { width: 100%; max-width: 380px; }
   body .login-layout { grid-template-columns: minmax(0, 1.2fr) 440px; max-width: clamp(1120px, 88vw, 1700px); gap: 64px; }
   .login-brand { display: none; }
   .login-wordmark-panel {
-    position: relative; isolation: isolate; text-align: center; color: var(--brand-navy);
+    position: relative; isolation: isolate; text-align: center; color: var(--heading);
     padding: 16px 22px 34px;
   }
   .login-wordmark-panel .login-art {
-    width: min(420px, 100%); min-height: 300px; margin: 0 auto 10px;
+    width: min(460px, 100%); min-height: 300px; margin: 0 auto;
   }
-  .login-wordmark-panel .login-art img {
-    width: 82%;
-  }
-  .login-wordmark {
-    display: flex; align-items: center; justify-content: center; gap: clamp(8px, 1.4vw, 18px);
-    font-size: 82px; font-weight: 800; line-height: .82;
-    letter-spacing: 0; color: var(--brand-navy);
-  }
-  .login-wordmark .brand-a {
-    position: relative; color: var(--brand-teal); display: inline-block;
-  }
-  .login-wordmark .brand-a::after {
-    content: "+"; position: absolute; left: 50%; top: 62%; transform: translate(-50%, -50%);
-    color: var(--brand-teal); font-size: .36em; font-weight: 900; letter-spacing: 0;
-  }
+  .login-wordmark-panel .login-brand-panel { position: relative; z-index: 2; width: 100%; }
   .login-wrap { position: relative; isolation: isolate; }
   .login-wrap::before {
     content: ""; position: absolute; z-index: -1; inset: -54px -42px;
-    border: 1px dashed rgba(21,149,141,.2); border-radius: 50%;
+    border: 1px dashed rgba(43,181,166,.28); border-radius: 50%;
     animation: heroOrbit 24s linear infinite reverse;
   }
   .login-wrap::after {
     content: ""; position: absolute; z-index: -1; left: -34px; right: -34px; top: 50%;
-    height: 1px; background: linear-gradient(90deg, transparent, rgba(21,149,141,.8), transparent);
-    box-shadow: 0 0 12px rgba(21,149,141,.32);
+    height: 1px; background: linear-gradient(90deg, transparent, rgba(43,181,166,.9), transparent);
+    box-shadow: 0 0 12px rgba(43,181,166,.4);
   }
   .login-wrap > .card {
     position: relative; overflow: hidden;
-    background: rgba(255,255,255,.88) !important;
-    border: 1px solid rgba(21,149,141,.22) !important;
-    box-shadow: 0 18px 40px rgba(12,53,82,.12), 0 0 0 8px rgba(21,149,141,.035);
+    background: rgba(23,69,107,.9) !important;
+    border: 1px solid rgba(43,181,166,.28) !important;
+    box-shadow: 0 18px 44px rgba(0,0,0,.34), 0 0 0 8px rgba(43,181,166,.05);
     backdrop-filter: blur(16px);
   }
   .login-wrap > .card::before {
@@ -59,18 +45,16 @@
   }
   .login-wrap > .card::after {
     content: ""; position: absolute; right: -58px; top: -58px; width: 160px; height: 160px;
-    border: 1px dashed rgba(21,149,141,.22); border-radius: 50%;
+    border: 1px dashed rgba(43,181,166,.28); border-radius: 50%;
     pointer-events: none; animation: heroOrbit 18s linear infinite;
   }
   @media (max-width: 1040px) {
-    .login-wordmark-panel .login-art { width: min(340px, 100%); min-height: 245px; }
-    .login-wordmark { font-size: 62px; }
+    .login-wordmark-panel .login-art { width: min(380px, 100%); min-height: 245px; }
   }
   @media (max-width: 820px) {
     body .login-layout { grid-template-columns: 1fr; gap: 26px; max-width: 430px; }
     .login-wordmark-panel { order: -1; }
-    .login-wordmark-panel .login-art { width: min(230px, 100%); min-height: 170px; }
-    .login-wordmark { font-size: 42px; letter-spacing: 0; gap: 7px; }
+    .login-wordmark-panel .login-art { width: 100%; min-height: 0; }
     .login-wrap::before, .login-wrap::after, .login-wrap > .card::after { display: none; }
   }
   @media (prefers-reduced-motion: reduce) {
@@ -106,20 +90,22 @@
   }
   .login-hint code { color: var(--blue-light); font-family: var(--font-mono); }
 </style>
-<link rel="stylesheet" href="css/redesign.css?v=3">
-<link rel="stylesheet" href="css/experience.css?v=1">
+<link rel="stylesheet" href="css/redesign.css?v=4">
+<link rel="stylesheet" href="css/experience.css?v=2">
 </head>
 <body>
 
 <div class="login-layout">
   <div class="login-wordmark-panel" aria-label="Vitarus">
-    <div class="login-art" aria-hidden="true">
-      <img src="assets/brand/logo-icon.png" alt="">
-      <div class="evidence-callout one">VET_REVIEW · VERIFIED</div>
-      <div class="evidence-callout two">PATIENT_DATA · SECURE</div>
-    </div>
-    <div class="login-wordmark" aria-hidden="true">
-      <span>VIT</span><span class="brand-a">A</span><span>RUS</span>
+    <div class="login-art">
+      <div class="brand-panel login-brand-panel">
+        <img class="brand-panel-logo" src="assets/brand/vitarus-lockup-light.svg" alt="Vitarus — Animal Diagnostics">
+        <p class="brand-tagline">Precision Preventative Health for Pets</p>
+        <p class="brand-powered">Powered by Multi-Modal Medical Imaging &amp; AI</p>
+        <hr class="brand-rule">
+      </div>
+      <div class="evidence-callout one" aria-hidden="true">VET_REVIEW · VERIFIED</div>
+      <div class="evidence-callout two" aria-hidden="true">PATIENT_DATA · SECURE</div>
     </div>
   </div>
   <div class="login-wrap">

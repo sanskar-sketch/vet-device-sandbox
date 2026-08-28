@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 70" width="220" height="70" role="img" aria-label="Vitarus — Animal Diagnostics">
+  <!-- Full lockup: wordmark + teal rule under the "A" + wide-tracked descriptor.
+       The descriptor's letter-spacing (3.9) is tuned so it optically spans the
+       same width as VITARUS above it — that even edge is what makes the
+       lockup read as one block rather than two stacked words. -->
+  <text x="1" y="38" font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
+        font-size="46" font-weight="700" letter-spacing="2.5" fill="#123A5C">VITARUS</text>
+  <rect x="77" y="44" width="31.9" height="5.5" rx="1" fill="#2BB5A6"/>
+  <text x="0.8" y="65" font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
+        font-size="13" font-weight="400" letter-spacing="4.12" fill="#5C7B96">ANIMAL DIAGNOSTICS</text>
+</svg>
