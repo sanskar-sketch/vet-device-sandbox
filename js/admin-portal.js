@@ -162,6 +162,108 @@ async function loadLabs() {
   }
 }
 
+
+/* ── Booking schedule ──────────────────────────────────────────────────────
+   Opening hours per weekday plus one appointment length for the lab. The
+   owner-facing slot grid is generated from exactly these two things (see
+   server/lib/availability.js), so there is no separate list of slots to keep
+   in step — which is why changing the length here is safe mid-week. */
+const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+async function loadLabSchedule(labId) {
+  const host = document.getElementById('lab-schedule-editor');
+  if (!host) return;
+  try {
+    const res = await fetch(`/api/labs/${labId}/schedule`, { credentials: 'same-origin' });
+    if (!res.ok) throw new Error((await res.json()).error || 'could not load schedule');
+    renderLabSchedule(labId, await res.json());
+  } catch (e) {
+    host.innerHTML = `<span class="text-muted" style="color:var(--red);">${e.message}</span>`;
+  }
+}
+
+function renderLabSchedule(labId, sched) {
+  const host = document.getElementById('lab-schedule-editor');
+  // Monday-first reads as a working week even though the data is 0=Sunday.
+  const order = [1, 2, 3, 4, 5, 6, 0];
+  const byDay = Object.fromEntries(sched.hours.map(h => [h.weekday, h]));
+
+  host.innerHTML = `
+    <div class="form-group" style="max-width:260px;margin-bottom:16px;">
+      <label>Appointment length</label>
+      <select id="sched-slot-minutes">
+        ${[15, 20, 30, 45, 60, 90].map(m =>
+          `<option value="${m}" ${m === sched.slot_minutes ? 'selected' : ''}>${m} minutes</option>`).join('')}
+      </select>
+    </div>
+    <div class="sched-rows">
+      ${order.map(wd => {
+        const h = byDay[wd] || { is_open: false, opens_at: '09:00', closes_at: '17:00' };
+        return `<div class="sched-row" data-weekday="${wd}">
+          <label class="sched-day">
+            <input type="checkbox" class="sched-open" ${h.is_open ? 'checked' : ''}>
+            <span>${WEEKDAY_NAMES[wd]}</span>
+          </label>
+          <div class="sched-times">
+            <input type="time" class="sched-from" value="${h.opens_at}" ${h.is_open ? '' : 'disabled'}>
+            <span class="sched-dash">to</span>
+            <input type="time" class="sched-to" value="${h.closes_at}" ${h.is_open ? '' : 'disabled'}>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+    <div style="margin-top:14px;display:flex;align-items:center;gap:12px;">
+      <button class="btn btn-primary" id="btn-save-schedule">Save schedule</button>
+      <span id="sched-status" class="text-muted" style="font-size:12.5px;"></span>
+    </div>`;
+
+  host.querySelectorAll('.sched-row').forEach(row => {
+    const box = row.querySelector('.sched-open');
+    box.addEventListener('change', () => {
+      row.querySelectorAll('input[type=time]').forEach(i => { i.disabled = !box.checked; });
+      row.classList.toggle('is-closed', !box.checked);
+    });
+    row.classList.toggle('is-closed', !box.checked);
+  });
+
+  document.getElementById('btn-save-schedule').addEventListener('click', () => saveLabSchedule(labId));
+}
+
+async function saveLabSchedule(labId) {
+  const statusEl = document.getElementById('sched-status');
+  const btn = document.getElementById('btn-save-schedule');
+  const hours = [...document.querySelectorAll('.sched-row')].map(row => ({
+    weekday: Number(row.dataset.weekday),
+    is_open: row.querySelector('.sched-open').checked,
+    opens_at: row.querySelector('.sched-from').value,
+    closes_at: row.querySelector('.sched-to').value
+  }));
+
+  // Caught here as well as server-side so the message points at the day.
+  const bad = hours.find(h => h.is_open && h.closes_at <= h.opens_at);
+  if (bad) {
+    statusEl.style.color = 'var(--red)';
+    statusEl.textContent = `${WEEKDAY_NAMES[bad.weekday]}: closing time must be after opening time.`;
+    return;
+  }
+
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    const res = await fetch(`/api/labs/${labId}/schedule`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+      body: JSON.stringify({ slot_minutes: Number(document.getElementById('sched-slot-minutes').value), hours })
+    });
+    if (!res.ok) throw new Error((await res.json()).error || 'could not save');
+    statusEl.style.color = '#3fb950';
+    statusEl.textContent = 'Schedule saved.';
+  } catch (e) {
+    statusEl.style.color = 'var(--red)';
+    statusEl.textContent = e.message;
+  } finally {
+    btn.disabled = false; btn.textContent = 'Save schedule';
+  }
+}
+
 async function openLabDetail(labId) {
   try {
     const res = await fetch(`/api/labs/${labId}`, { credentials: 'same-origin' });
@@ -199,6 +301,18 @@ function renderLabDetail(lab) {
           <button class="btn btn-primary" id="btn-save-lab">Save changes</button>
           <span id="lab-save-status" class="text-muted" style="font-size:12.5px;"></span>
         </div>
+      </div>
+    </div>
+
+    <div class="card section-block">
+      <div class="card-header">Booking schedule</div>
+      <div class="card-body">
+        <p class="text-muted" style="font-size:12px;margin-bottom:12px;">
+          Owners can only request times generated from this: the days you're open, split into
+          appointments of the length below. Changing either reshapes every future day at once —
+          already-accepted bookings keep their time.
+        </p>
+        <div id="lab-schedule-editor"><span class="text-muted">Loading schedule…</span></div>
       </div>
     </div>
 
@@ -262,6 +376,7 @@ function renderLabDetail(lab) {
   });
 
   document.getElementById('btn-save-lab').addEventListener('click', () => saveLabInfo(lab.id));
+  loadLabSchedule(lab.id);
   document.getElementById('btn-add-machine').addEventListener('click', () => addMachine(lab.id));
 
   document.querySelectorAll('.machine-state-select').forEach(sel => {

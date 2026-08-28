@@ -20,6 +20,7 @@ const { nowISO, appOrigin } = require('./utils');
 const { requireAuth, requireRole } = require('./auth');
 const { ah } = require('./async-handler');
 const email = require('./email');
+const { availabilityFor, isSelectable } = require('./availability');
 
 const CLINIC_ROLES = ['staff', 'vet', 'admin']; // super_admin is platform-wide, not tied to one lab's inbox
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -45,11 +46,17 @@ function router(db) {
       return res.status(400).json({ error: 'lab_id, requested_date, and requested_time are required' });
     if (!DATE_RE.test(requested_date)) return res.status(400).json({ error: 'requested_date must be YYYY-MM-DD' });
     if (!TIME_RE.test(requested_time)) return res.status(400).json({ error: 'requested_time must be HH:MM' });
-    if (new Date(`${requested_date}T${requested_time}`) < new Date())
-      return res.status(400).json({ error: 'requested date/time is in the past' });
 
     const lab = await db.prepare('SELECT id, name FROM labs WHERE id = ?').get(lab_id);
     if (!lab) return res.status(400).json({ error: 'lab_id does not reference an existing clinic' });
+
+    // The owner picks from a generated grid, so the server re-derives it
+    // rather than trusting the submitted time: this rejects a stale tab
+    // whose slot was booked or blocked since it loaded, and it also covers
+    // the past-time and outside-opening-hours cases the old explicit checks
+    // handled.
+    const selectable = await isSelectable(db, Number(lab_id), requested_date, requested_time);
+    if (!selectable.ok) return res.status(409).json({ error: selectable.error });
 
     if (pet_id) {
       const pet = await db.prepare('SELECT id FROM pets WHERE id = ? AND owner_user_id = ?').get(pet_id, req.user.id);
@@ -91,6 +98,74 @@ function router(db) {
     res.json(appt);
   }));
 
+  // ── Bookable slots for one lab on one date ───────────────────────────────
+  // Any signed-in role: owners pick from it, clinic staff see the same grid
+  // when deciding what to block.
+  r.get('/labs/:id/availability', requireAuth, ah(async (req, res) => {
+    const date = req.query.date;
+    if (!date) return res.status(400).json({ error: 'date query parameter is required (YYYY-MM-DD)' });
+    try {
+      res.json(await availabilityFor(db, Number(req.params.id), date, { includeLabName: true }));
+    } catch (err) {
+      if (err.status) return res.status(err.status).json({ error: err.message });
+      throw err;
+    }
+  }));
+
+  // ── Staff-declared unavailability ────────────────────────────────────────
+  // An offline booking, an emergency, an early close. Staff manage their own
+  // lab's blocks; super_admin can act on any.
+  function canBlockFor(user, labId) {
+    return user.role === 'super_admin' || labId === user.lab_id;
+  }
+
+  r.get('/labs/:id/blocks', requireAuth, requireRole(...CLINIC_ROLES, 'super_admin'), ah(async (req, res) => {
+    const labId = Number(req.params.id);
+    if (!canBlockFor(req.user, labId)) return res.status(403).json({ error: 'not permitted for this clinic' });
+    const rows = req.query.date
+      ? await db.prepare('SELECT * FROM slot_blocks WHERE lab_id = ? AND block_date = ? ORDER BY start_time').all(labId, req.query.date)
+      : await db.prepare('SELECT * FROM slot_blocks WHERE lab_id = ? AND block_date >= ? ORDER BY block_date, start_time')
+          .all(labId, nowISO().slice(0, 10));
+    res.json(rows);
+  }));
+
+  r.post('/labs/:id/blocks', requireAuth, requireRole(...CLINIC_ROLES, 'super_admin'), ah(async (req, res) => {
+    const labId = Number(req.params.id);
+    if (!canBlockFor(req.user, labId)) return res.status(403).json({ error: 'not permitted for this clinic' });
+
+    const { block_date, start_time, end_time, reason } = req.body || {};
+    if (!block_date || !start_time || !end_time)
+      return res.status(400).json({ error: 'block_date, start_time and end_time are required' });
+    if (!DATE_RE.test(block_date)) return res.status(400).json({ error: 'block_date must be YYYY-MM-DD' });
+    if (!TIME_RE.test(start_time) || !TIME_RE.test(end_time))
+      return res.status(400).json({ error: 'start_time and end_time must be HH:MM' });
+    if (end_time <= start_time) return res.status(400).json({ error: 'end_time must be after start_time' });
+
+    // Blocking time that is already accepted would silently strand a booked
+    // owner, so it's refused with the clash named rather than applied.
+    const clash = await db.prepare(
+      "SELECT requested_time FROM appointments WHERE lab_id = ? AND requested_date = ? AND status = 'accepted' AND requested_time >= ? AND requested_time < ?"
+    ).all(labId, block_date, start_time, end_time);
+    if (clash.length)
+      return res.status(409).json({
+        error: `That range already has ${clash.length} accepted appointment(s) at ${clash.map(c => c.requested_time).join(', ')}. Decline or move them first.`
+      });
+
+    const info = await db.prepare(`
+      INSERT INTO slot_blocks (lab_id, block_date, start_time, end_time, reason, created_by_user_id, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(labId, block_date, start_time, end_time, reason || null, req.user.id, nowISO());
+    res.json(await db.prepare('SELECT * FROM slot_blocks WHERE id = ?').get(info.lastInsertRowid));
+  }));
+
+  r.delete('/blocks/:blockId', requireAuth, requireRole(...CLINIC_ROLES, 'super_admin'), ah(async (req, res) => {
+    const block = await db.prepare('SELECT * FROM slot_blocks WHERE id = ?').get(req.params.blockId);
+    if (!block) return res.status(404).json({ error: 'block not found' });
+    if (!canBlockFor(req.user, block.lab_id)) return res.status(403).json({ error: 'not permitted for this clinic' });
+    await db.prepare('DELETE FROM slot_blocks WHERE id = ?').run(block.id);
+    res.json({ ok: true });
+  }));
+
   // ── Owner: their own requests, any status ─────────────────────────────────
   r.get('/appointments/mine', requireAuth, requireRole('owner'), ah(async (req, res) => {
     const rows = await db.prepare('SELECT * FROM appointments WHERE owner_user_id = ? ORDER BY created_at DESC').all(req.user.id);
@@ -128,6 +203,13 @@ function router(db) {
       "SELECT id FROM appointments WHERE lab_id = ? AND requested_date = ? AND requested_time = ? AND status = 'accepted'"
     ).get(row.lab_id, row.requested_date, row.requested_time);
     if (clash) return res.status(409).json({ error: 'that slot was already booked by another accepted request' });
+
+    // A request can sit pending across a change to the lab's hours or a
+    // newly-added block, so the slot is re-validated at accept time rather
+    // than trusting that it was bookable when it was raised.
+    const stillOk = await isSelectable(db, row.lab_id, row.requested_date, row.requested_time);
+    if (!stillOk.ok)
+      return res.status(409).json({ error: `Can't accept — ${stillOk.error.charAt(0).toLowerCase() + stillOk.error.slice(1)}` });
 
     try {
       await db.prepare("UPDATE appointments SET status = 'accepted', handled_by_user_id = ?, handled_at = ? WHERE id = ?")

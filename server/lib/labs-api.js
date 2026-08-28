@@ -84,6 +84,74 @@ function router(db) {
     res.json(await serializeLab(db, await db.prepare('SELECT * FROM labs WHERE id = ?').get(lab.id)));
   }));
 
+  // ── Bookable schedule: weekly opening hours + appointment length ─────────
+  // This is what the owner-facing slot grid is generated from; see
+  // server/lib/availability.js. Same admin scoping as the rest of this file —
+  // an admin manages only their own lab, super_admin manages any.
+  r.get('/labs/:id/schedule', requireAuth, requireRole('admin', 'super_admin', 'staff', 'vet'), ah(async (req, res) => {
+    const lab = await db.prepare('SELECT id, name, slot_minutes FROM labs WHERE id = ?').get(req.params.id);
+    if (!lab) return res.status(404).json({ error: 'lab not found' });
+    // Clinic staff need to read the schedule to block time against it, but
+    // only for the lab they belong to.
+    const isClinicStaff = req.user.role === 'staff' || req.user.role === 'vet';
+    if (isClinicStaff ? lab.id !== req.user.lab_id : !canManageLab(req.user, lab.id))
+      return res.status(403).json({ error: 'not permitted for this lab' });
+
+    const hours = await db.prepare('SELECT weekday, is_open, opens_at, closes_at FROM lab_hours WHERE lab_id = ? ORDER BY weekday').all(lab.id);
+    res.json({ lab_id: lab.id, lab_name: lab.name, slot_minutes: lab.slot_minutes || 30, hours });
+  }));
+
+  r.put('/labs/:id/schedule', requireAuth, requireRole('admin', 'super_admin'), ah(async (req, res) => {
+    const lab = await db.prepare('SELECT * FROM labs WHERE id = ?').get(req.params.id);
+    if (!lab) return res.status(404).json({ error: 'lab not found' });
+    if (!canManageLab(req.user, lab.id)) return res.status(403).json({ error: 'not permitted for this lab' });
+
+    const { slot_minutes, hours } = req.body || {};
+
+    if (slot_minutes !== undefined) {
+      const mins = Number(slot_minutes);
+      // Bounded because the grid is generated from it: a zero or negative
+      // step never terminates, and anything under 5 minutes produces a
+      // hundreds-of-slots day that is useless to pick from.
+      if (!Number.isInteger(mins) || mins < 5 || mins > 480)
+        return res.status(400).json({ error: 'slot_minutes must be a whole number of minutes between 5 and 480' });
+      await db.prepare('UPDATE labs SET slot_minutes = ? WHERE id = ?').run(mins, lab.id);
+    }
+
+    if (hours !== undefined) {
+      if (!Array.isArray(hours)) return res.status(400).json({ error: 'hours must be an array' });
+      const TIME_RE = /^\d{2}:\d{2}$/;
+      for (const h of hours) {
+        const weekday = Number(h.weekday);
+        if (!Number.isInteger(weekday) || weekday < 0 || weekday > 6)
+          return res.status(400).json({ error: 'each hours entry needs a weekday 0-6' });
+        const isOpen = h.is_open !== false;
+        const opens = h.opens_at || '09:00';
+        const closes = h.closes_at || '17:00';
+        if (!TIME_RE.test(opens) || !TIME_RE.test(closes))
+          return res.status(400).json({ error: 'opens_at and closes_at must be HH:MM' });
+        if (isOpen && closes <= opens)
+          return res.status(400).json({ error: `closing time must be after opening time (weekday ${weekday})` });
+
+        // The db.js shim appends `RETURNING id` to any INSERT that lacks a
+        // RETURNING clause, and lab_hours is keyed on (lab_id, weekday) with
+        // no id column — so this states its own RETURNING to stop the
+        // rewrite (otherwise: 'column "id" does not exist').
+        await db.prepare(`
+          INSERT INTO lab_hours (lab_id, weekday, is_open, opens_at, closes_at)
+          VALUES (?, ?, ?, ?, ?)
+          ON CONFLICT (lab_id, weekday)
+          DO UPDATE SET is_open = EXCLUDED.is_open, opens_at = EXCLUDED.opens_at, closes_at = EXCLUDED.closes_at
+          RETURNING lab_id
+        `).run(lab.id, weekday, isOpen, opens, closes);
+      }
+    }
+
+    const updated = await db.prepare('SELECT id, name, slot_minutes FROM labs WHERE id = ?').get(lab.id);
+    const rows = await db.prepare('SELECT weekday, is_open, opens_at, closes_at FROM lab_hours WHERE lab_id = ? ORDER BY weekday').all(lab.id);
+    res.json({ lab_id: updated.id, lab_name: updated.name, slot_minutes: updated.slot_minutes, hours: rows });
+  }));
+
   // ── Add a machine to a lab ────────────────────────────────────────────────
   r.post('/labs/:id/machines', requireAuth, requireRole('admin', 'super_admin'), ah(async (req, res) => {
     const lab = await db.prepare('SELECT * FROM labs WHERE id = ?').get(req.params.id);

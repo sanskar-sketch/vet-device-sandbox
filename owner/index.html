@@ -6,7 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <title>Vitarus · Owner Portal</title>
-<link rel="stylesheet" href="../css/shared.css?v=7">
+<link rel="stylesheet" href="../css/shared.css?v=10">
 <link rel="stylesheet" href="../css/redesign.css?v=5">
 <link rel="stylesheet" href="../css/report.css?v=6">
 <style>
@@ -316,7 +316,12 @@
           <div class="form-group"><label>Clinic</label><select id="appt-lab"><option value="">Loading clinics…</option></select></div>
           <div class="form-group"><label>Pet</label><select id="appt-pet"><option value="">— General / not sure yet —</option></select></div>
           <div class="form-group"><label>Date</label><input type="date" id="appt-date"></div>
-          <div class="form-group"><label>Time</label><input type="time" id="appt-time"></div>
+          <div class="form-group span-2"><label>Available times</label>
+            <!-- Replaces a free <input type="time">: the owner can only pick
+                 a slot the clinic actually offers, so an impossible time can
+                 never be requested and then declined. -->
+            <div id="appt-slots" class="slot-grid-wrap"><span class="text-muted" style="font-size:12.5px;">Choose a clinic and date to see available times.</span></div>
+          </div>
           <div class="form-group span-2"><label>Reason (optional)</label><textarea id="appt-reason" rows="2" placeholder="e.g. Annual checkup, limping on left leg…"></textarea></div>
         </div>
         <div class="text-muted" id="appt-status" style="min-height:16px;margin-top:8px;"></div>
@@ -994,18 +999,92 @@ async function loadAppointments() {
   }
 }
 
+/* ── Bookable slots ─────────────────────────────────────────────────────────
+   The grid is fetched per clinic+date rather than computed here: opening
+   hours, appointment length, what's booked and what staff have blocked all
+   live server-side, and duplicating that logic in the browser would let the
+   two disagree. */
+let selectedSlot = null;
+
+const SLOT_STATE = {
+  available: { label: '',            selectable: true  },
+  pending:   { label: 'requested',   selectable: true  },
+  booked:    { label: 'booked',      selectable: false },
+  blocked:   { label: 'unavailable', selectable: false },
+  past:      { label: '',            selectable: false }
+};
+
+function renderSlots(data) {
+  const wrap = document.getElementById('appt-slots');
+  selectedSlot = null;
+
+  if (!data.open) {
+    wrap.innerHTML = `<span class="text-muted" style="font-size:12.5px;">${escapeHtml(data.reason || 'The clinic is closed that day.')}</span>`;
+    return;
+  }
+  const anyFree = data.slots.some(s => SLOT_STATE[s.status].selectable);
+  if (!data.slots.length || !anyFree) {
+    wrap.innerHTML = `<span class="text-muted" style="font-size:12.5px;">No times left on this date — try another day.</span>`;
+    if (!data.slots.length) return;
+  }
+
+  const mins = data.slot_minutes;
+  wrap.innerHTML = `
+    <div class="slot-legend">${escapeHtml(data.opens_at)}–${escapeHtml(data.closes_at)} · ${mins} min per appointment</div>
+    <div class="slot-grid">${data.slots.map(s => {
+      const meta = SLOT_STATE[s.status];
+      const title = s.detail ? ` title="${escapeHtml(s.detail)}"` : '';
+      return `<button type="button" class="slot-btn slot-${s.status}" data-slot="${s.time}"
+                ${meta.selectable ? '' : 'disabled'}${title}>
+                <span class="slot-time">${s.time}</span>
+                ${meta.label ? `<span class="slot-tag">${meta.label}</span>` : ''}
+              </button>`;
+    }).join('')}</div>`;
+
+  wrap.querySelectorAll('.slot-btn:not([disabled])').forEach(btn => {
+    btn.addEventListener('click', () => {
+      wrap.querySelectorAll('.slot-btn').forEach(b => b.classList.remove('is-selected'));
+      btn.classList.add('is-selected');
+      selectedSlot = btn.dataset.slot;
+    });
+  });
+}
+
+async function loadSlots() {
+  const labId = document.getElementById('appt-lab').value;
+  const date = document.getElementById('appt-date').value;
+  const wrap = document.getElementById('appt-slots');
+  selectedSlot = null;
+
+  if (!labId || !date) {
+    wrap.innerHTML = '<span class="text-muted" style="font-size:12.5px;">Choose a clinic and date to see available times.</span>';
+    return;
+  }
+  wrap.innerHTML = '<span class="text-muted" style="font-size:12.5px;">Loading times…</span>';
+  try {
+    const res = await fetch(`/api/labs/${labId}/availability?date=${date}`, { credentials: 'same-origin' });
+    if (!res.ok) throw new Error((await res.json()).error || 'could not load times');
+    renderSlots(await res.json());
+  } catch (e) {
+    wrap.innerHTML = `<span class="text-muted" style="font-size:12.5px;color:var(--red);">${escapeHtml(e.message)}</span>`;
+  }
+}
+
+document.getElementById('appt-lab').addEventListener('change', loadSlots);
+document.getElementById('appt-date').addEventListener('change', loadSlots);
+
 document.getElementById('btn-request-appt').addEventListener('click', async () => {
   const labId = document.getElementById('appt-lab').value;
   const petId = document.getElementById('appt-pet').value;
   const date = document.getElementById('appt-date').value;
-  const time = document.getElementById('appt-time').value;
+  const time = selectedSlot;
   const reason = document.getElementById('appt-reason').value.trim();
   const statusEl = document.getElementById('appt-status');
   const btn = document.getElementById('btn-request-appt');
 
   if (!labId || !date || !time) {
     statusEl.style.color = 'var(--red)';
-    statusEl.textContent = 'Choose a clinic, date, and time.';
+    statusEl.textContent = labId && date ? 'Pick one of the available times.' : 'Choose a clinic and a date.';
     return;
   }
 
@@ -1025,9 +1104,10 @@ document.getElementById('btn-request-appt').addEventListener('click', async () =
     });
     if (!res.ok) throw new Error((await res.json()).error || 'could not submit request');
 
-    document.getElementById('appt-date').value = '';
-    document.getElementById('appt-time').value = '';
     document.getElementById('appt-reason').value = '';
+    // Reload rather than clear: the slot just requested should immediately
+    // show as taken, and the owner may want a second appointment that day.
+    loadSlots();
     statusEl.style.color = '#3fb950';
     statusEl.textContent = 'Request sent — the clinic will confirm by email.';
     loadAppointments();

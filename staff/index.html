@@ -6,7 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <title>Vitarus · Clinic Dashboard</title>
-<link rel="stylesheet" href="../css/shared.css?v=7">
+<link rel="stylesheet" href="../css/shared.css?v=10">
 <link rel="stylesheet" href="../css/redesign.css?v=5">
 <link rel="stylesheet" href="../css/experience.css?v=5">
 <link rel="stylesheet" href="../css/app.css?v=23">
@@ -143,6 +143,33 @@
       <div class="card-header">Appointment Requests <span id="appt-req-badge" style="display:none;background:var(--orange);color:#1a1204;font-size:11px;font-weight:700;border-radius:10px;padding:1px 8px;margin-left:6px;vertical-align:middle;"></span></div>
       <div class="card-body" id="appt-requests-list">
         <span class="text-muted">Loading…</span>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:14px;">
+      <div class="card-header">Clinic Availability</div>
+      <div class="card-body">
+        <p class="text-muted" style="font-size:12px;margin-bottom:12px;">
+          What owners can book on a given day. Mark time unavailable for an offline booking,
+          an emergency, or an early close — blocked time disappears from their slot list straight away.
+        </p>
+        <div class="form-group" style="max-width:220px;">
+          <label>Date</label>
+          <input type="date" id="avail-date">
+        </div>
+        <div id="avail-grid" style="margin-bottom:16px;"><span class="text-muted" style="font-size:12.5px;">Pick a date.</span></div>
+
+        <div class="block-form">
+          <div class="form-group"><label>Block from</label><input type="time" id="block-from"></div>
+          <div class="form-group"><label>Until</label><input type="time" id="block-to"></div>
+          <div class="form-group block-reason"><label>Reason (optional)</label>
+            <input type="text" id="block-reason" placeholder="e.g. Emergency surgery, walk-in clinic">
+          </div>
+        </div>
+        <div class="text-muted" id="block-status" style="min-height:16px;margin-top:8px;"></div>
+        <button class="btn btn-secondary" id="btn-add-block" style="margin-top:4px;">Mark unavailable</button>
+
+        <div id="blocks-list" style="margin-top:16px;"></div>
       </div>
     </div>
 
@@ -476,6 +503,112 @@ document.querySelectorAll('[data-back]').forEach(btn => btn.addEventListener('cl
   document.body.appendChild(banner);
 })();
 
+/* ── Clinic availability ───────────────────────────────────────────────────
+   Staff read the same generated grid the owner sees, so what they block is
+   unambiguously the thing the owner was being offered. Blocks are stored as
+   a time range (not per-slot), which keeps them meaningful if an admin later
+   changes the lab's appointment length. */
+const AVAIL_LABEL = { available: 'free', pending: 'requested', booked: 'booked', blocked: 'blocked', past: 'past' };
+
+function staffLabId() {
+  return currentUser && currentUser.lab_id ? currentUser.lab_id : null;
+}
+
+async function loadAvailability() {
+  const labId = staffLabId();
+  const date = document.getElementById('avail-date').value;
+  const grid = document.getElementById('avail-grid');
+  if (!labId || !date) {
+    grid.innerHTML = '<span class="text-muted" style="font-size:12.5px;">Pick a date.</span>';
+    return;
+  }
+  grid.innerHTML = '<span class="text-muted" style="font-size:12.5px;">Loading…</span>';
+  try {
+    const res = await fetch(`/api/labs/${labId}/availability?date=${date}`, { credentials: 'same-origin' });
+    if (!res.ok) throw new Error((await res.json()).error || 'could not load');
+    const data = await res.json();
+    if (!data.open) {
+      grid.innerHTML = `<span class="text-muted" style="font-size:12.5px;">${staffEscapeHtml(data.reason || 'Closed.')}</span>`;
+    } else {
+      grid.innerHTML = `
+        <div class="slot-legend">${data.opens_at}–${data.closes_at} · ${data.slot_minutes} min per appointment</div>
+        <div class="slot-grid">${data.slots.map(s => `
+          <div class="slot-btn slot-${s.status}"${s.detail ? ` title="${staffEscapeHtml(s.detail)}"` : ''}>
+            <span class="slot-time">${s.time}</span>
+            <span class="slot-tag">${AVAIL_LABEL[s.status]}</span>
+          </div>`).join('')}</div>`;
+    }
+    loadBlocks();
+  } catch (e) {
+    grid.innerHTML = `<span class="text-muted" style="font-size:12.5px;color:var(--red);">${staffEscapeHtml(e.message)}</span>`;
+  }
+}
+
+async function loadBlocks() {
+  const labId = staffLabId();
+  const date = document.getElementById('avail-date').value;
+  const host = document.getElementById('blocks-list');
+  if (!labId || !date) { host.innerHTML = ''; return; }
+  try {
+    const res = await fetch(`/api/labs/${labId}/blocks?date=${date}`, { credentials: 'same-origin' });
+    if (!res.ok) { host.innerHTML = ''; return; }
+    const blocks = await res.json();
+    host.innerHTML = blocks.length
+      ? `<div class="card-header" style="padding:0 0 8px;">Blocked on this date</div>` + blocks.map(b => `
+          <div class="block-row">
+            <div>
+              <b>${b.start_time}–${b.end_time}</b>
+              ${b.reason ? `<span class="text-muted" style="margin-left:8px;">${staffEscapeHtml(b.reason)}</span>` : ''}
+            </div>
+            <button class="btn btn-secondary" data-unblock="${b.id}" style="font-size:11.5px;padding:5px 11px;">Remove</button>
+          </div>`).join('')
+      : '';
+    host.querySelectorAll('[data-unblock]').forEach(btn =>
+      btn.addEventListener('click', () => removeBlock(btn.dataset.unblock)));
+  } catch { host.innerHTML = ''; }
+}
+
+async function addBlock() {
+  const labId = staffLabId();
+  const statusEl = document.getElementById('block-status');
+  const btn = document.getElementById('btn-add-block');
+  const body = {
+    block_date: document.getElementById('avail-date').value,
+    start_time: document.getElementById('block-from').value,
+    end_time: document.getElementById('block-to').value,
+    reason: document.getElementById('block-reason').value.trim() || null
+  };
+  if (!labId || !body.block_date || !body.start_time || !body.end_time) {
+    statusEl.style.color = 'var(--red)';
+    statusEl.textContent = 'Pick a date and a time range.';
+    return;
+  }
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    const res = await fetch(`/api/labs/${labId}/blocks`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin', body: JSON.stringify(body)
+    });
+    if (!res.ok) throw new Error((await res.json()).error || 'could not block that time');
+    statusEl.style.color = '#3fb950';
+    statusEl.textContent = 'Time marked unavailable.';
+    document.getElementById('block-reason').value = '';
+    loadAvailability();
+  } catch (e) {
+    statusEl.style.color = 'var(--red)';
+    statusEl.textContent = e.message;
+  } finally {
+    btn.disabled = false; btn.textContent = 'Mark unavailable';
+  }
+}
+
+async function removeBlock(id) {
+  try {
+    const res = await fetch(`/api/blocks/${id}`, { method: 'DELETE', credentials: 'same-origin' });
+    if (res.ok) loadAvailability();
+  } catch {}
+}
+
 /* ── Appointment Requests — pending owner-submitted requests for this
    clinic's lab (server/lib/appointments-api.js). Accepting locks the slot
    for the whole lab (a partial unique index server-side is the actual
@@ -525,6 +658,8 @@ async function handleAppointmentAction(id, action) {
     });
     if (!res.ok) throw new Error((await res.json()).error || `could not ${action}`);
     loadAppointmentRequests();
+    // Accepting a request takes that slot, so the availability grid is stale.
+    loadAvailability();
   } catch (e) {
     if (statusEl) { statusEl.style.color = 'var(--red)'; statusEl.textContent = e.message; }
   }
@@ -1754,6 +1889,15 @@ AuthGuard.requireRole('staff', 'admin', 'super_admin').then(user => {
   AuthGuard.renderStrip(user, '#auth-strip-mount');
   loadMyExams();
   loadAppointmentRequests();
+
+  // Availability needs currentUser.lab_id, so it wires up here rather than
+  // at parse time.
+  const availDate = document.getElementById('avail-date');
+  availDate.min = new Date().toISOString().slice(0, 10);
+  availDate.value = availDate.min;
+  availDate.addEventListener('change', loadAvailability);
+  document.getElementById('btn-add-block').addEventListener('click', addBlock);
+  loadAvailability();
 });
 </script>
 

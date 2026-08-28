@@ -178,6 +178,37 @@ async function createSchema() {
     -- many pending requests for the same slot until one is accepted.
     CREATE UNIQUE INDEX IF NOT EXISTS idx_appointments_slot_lock
       ON appointments(lab_id, requested_date, requested_time) WHERE status = 'accepted';
+
+    -- ── Bookable hours ───────────────────────────────────────────────────
+    -- One row per lab per weekday (0 = Sunday, matching JS getDay()). Slots
+    -- are *derived* from these plus labs.slot_minutes rather than stored, so
+    -- changing opening hours or appointment length never leaves orphaned
+    -- slot rows to reconcile — the only persisted facts are when the lab is
+    -- open, how long an appointment takes, what's booked, and what staff
+    -- have blocked out.
+    CREATE TABLE IF NOT EXISTS lab_hours (
+      lab_id     INTEGER NOT NULL REFERENCES labs(id),
+      weekday    INTEGER NOT NULL CHECK(weekday BETWEEN 0 AND 6),
+      is_open    BOOLEAN NOT NULL DEFAULT true,
+      opens_at   TEXT NOT NULL DEFAULT '09:00',
+      closes_at  TEXT NOT NULL DEFAULT '17:00',
+      PRIMARY KEY (lab_id, weekday)
+    );
+
+    -- Staff-declared unavailability: an offline booking, an emergency, a
+    -- half-day closure. Stored as a time range rather than per-slot rows so
+    -- it stays correct if the lab later changes its appointment length.
+    CREATE TABLE IF NOT EXISTS slot_blocks (
+      id                 SERIAL PRIMARY KEY,
+      lab_id             INTEGER NOT NULL REFERENCES labs(id),
+      block_date         TEXT NOT NULL,
+      start_time         TEXT NOT NULL,
+      end_time           TEXT NOT NULL,
+      reason             TEXT,
+      created_by_user_id INTEGER REFERENCES users(id),
+      created_at         TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_slot_blocks_lab_date ON slot_blocks(lab_id, block_date);
   `);
 
   // ── Additive columns — safe to re-run against an existing database ───────
@@ -197,6 +228,7 @@ async function createSchema() {
     ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_hash    TEXT;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expires TEXT;
     ALTER TABLE pets  ADD COLUMN IF NOT EXISTS has_photo     BOOLEAN NOT NULL DEFAULT false;
+    ALTER TABLE labs  ADD COLUMN IF NOT EXISTS slot_minutes INTEGER NOT NULL DEFAULT 30;
     ALTER TABLE exams ADD COLUMN IF NOT EXISTS corrected_at     TEXT;
     ALTER TABLE exams ADD COLUMN IF NOT EXISTS correction_note  TEXT;
   `);
@@ -269,11 +301,36 @@ async function seedDemoAccounts(defaultLab) {
   console.log('Register an owner account from the login page — owners are not seeded.\n');
 }
 
+/**
+ * Gives every lab a default week of opening hours the first time it's seen.
+ *
+ * Without this a lab has no lab_hours rows at all, and the availability
+ * engine — correctly — reports it as closed on every date, so owners would
+ * see an empty calendar until an admin happened to visit the schedule
+ * editor. ON CONFLICT DO NOTHING makes it a backfill rather than a reset:
+ * hours an admin has already set are never overwritten on reboot.
+ */
+async function seedLabHours() {
+  const labs = await db.prepare('SELECT id FROM labs').all();
+  for (const lab of labs) {
+    for (let weekday = 0; weekday <= 6; weekday++) {
+      const isWeekend = weekday === 0 || weekday === 6;
+      await pool.query(
+        `INSERT INTO lab_hours (lab_id, weekday, is_open, opens_at, closes_at)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (lab_id, weekday) DO NOTHING`,
+        [lab.id, weekday, !isWeekend, isWeekend ? '10:00' : '09:00', isWeekend ? '14:00' : '17:00']
+      );
+    }
+  }
+}
+
 db.ready = (async () => {
   await createSchema();
   const defaultLab = await ensureDefaultLab();
   await seedDemoMachines(defaultLab);
   await seedDemoAccounts(defaultLab);
+  await seedLabHours();
 })();
 
 module.exports = db;
