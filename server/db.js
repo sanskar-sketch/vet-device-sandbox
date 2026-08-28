@@ -154,7 +154,7 @@ async function createSchema() {
       requested_date     TEXT NOT NULL,
       requested_time     TEXT NOT NULL,
       reason             TEXT,
-      status             TEXT NOT NULL CHECK(status IN ('pending','accepted','declined','cancelled')) DEFAULT 'pending',
+      status             TEXT NOT NULL CHECK(status IN ('pending','proposed','accepted','declined','cancelled')) DEFAULT 'pending',
       handled_by_user_id INTEGER REFERENCES users(id),
       handled_at         TEXT,
       decline_reason     TEXT,
@@ -229,6 +229,33 @@ async function createSchema() {
     ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expires TEXT;
     ALTER TABLE pets  ADD COLUMN IF NOT EXISTS has_photo     BOOLEAN NOT NULL DEFAULT false;
     ALTER TABLE labs  ADD COLUMN IF NOT EXISTS slot_minutes INTEGER NOT NULL DEFAULT 30;
+    -- Counter-offer: the clinic can propose a different slot instead of
+    -- declining outright. Held separately from requested_date/time so the
+    -- owner can see what they asked for next to what's being offered, and so
+    -- declining the offer leaves the original request intact.
+    ALTER TABLE appointments ADD COLUMN IF NOT EXISTS proposed_date        TEXT;
+    ALTER TABLE appointments ADD COLUMN IF NOT EXISTS proposed_time        TEXT;
+    ALTER TABLE appointments ADD COLUMN IF NOT EXISTS proposed_note        TEXT;
+    ALTER TABLE appointments ADD COLUMN IF NOT EXISTS proposed_by_user_id  INTEGER REFERENCES users(id);
+    ALTER TABLE appointments ADD COLUMN IF NOT EXISTS proposed_at          TEXT;
+
+    -- CREATE TABLE IF NOT EXISTS above is a no-op on a database that already
+    -- has this table, so its widened CHECK never reaches production — the old
+    -- four-status constraint would reject 'proposed' on the first counter-
+    -- offer. Rebuilding the constraint explicitly is what actually migrates
+    -- it; DROP ... IF EXISTS keeps this safe to re-run every boot.
+    ALTER TABLE appointments DROP CONSTRAINT IF EXISTS appointments_status_check;
+    ALTER TABLE appointments ADD CONSTRAINT appointments_status_check
+      CHECK (status IN ('pending','proposed','accepted','declined','cancelled'));
+
+    -- Must come after the ALTERs above: proposed_date/proposed_time are
+    -- added there, and indexing a column that doesn't exist yet aborts the
+    -- whole boot ("column \"proposed_date\" does not exist").
+    --
+    -- An offered slot is held while the owner decides (see availability.js),
+    -- so two clinic staff can't offer the same one to two different owners.
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_appointments_proposed_lock
+      ON appointments(lab_id, proposed_date, proposed_time) WHERE status = 'proposed';
     ALTER TABLE exams ADD COLUMN IF NOT EXISTS corrected_at     TEXT;
     ALTER TABLE exams ADD COLUMN IF NOT EXISTS correction_note  TEXT;
   `);

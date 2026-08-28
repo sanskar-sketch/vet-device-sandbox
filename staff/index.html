@@ -6,7 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <title>Vitarus · Clinic Dashboard</title>
-<link rel="stylesheet" href="../css/shared.css?v=10">
+<link rel="stylesheet" href="../css/shared.css?v=11">
 <link rel="stylesheet" href="../css/redesign.css?v=5">
 <link rel="stylesheet" href="../css/experience.css?v=5">
 <link rel="stylesheet" href="../css/app.css?v=23">
@@ -508,7 +508,7 @@ document.querySelectorAll('[data-back]').forEach(btn => btn.addEventListener('cl
    unambiguously the thing the owner was being offered. Blocks are stored as
    a time range (not per-slot), which keeps them meaningful if an admin later
    changes the lab's appointment length. */
-const AVAIL_LABEL = { available: 'free', pending: 'requested', booked: 'booked', blocked: 'blocked', past: 'past' };
+const AVAIL_LABEL = { available: 'free', pending: 'requested', held: 'offered', booked: 'booked', blocked: 'blocked', past: 'past' };
 
 function staffLabId() {
   return currentUser && currentUser.lab_id ? currentUser.lab_id : null;
@@ -618,8 +618,11 @@ async function loadAppointmentRequests() {
   const el = document.getElementById('appt-requests-list');
   const badge = document.getElementById('appt-req-badge');
   try {
-    const res = await fetch('/api/appointments?status=pending', { credentials: 'same-origin' });
-    const appts = await res.json();
+    // Offers awaiting an owner's answer stay in this queue: staff need to
+    // see what they've offered, and be able to revise it.
+    const res = await fetch('/api/appointments', { credentials: 'same-origin' });
+    const all = await res.json();
+    const appts = all.filter(a => a.status === 'pending' || a.status === 'proposed');
 
     if (appts.length) { badge.textContent = appts.length; badge.style.display = 'inline-block'; }
     else badge.style.display = 'none';
@@ -632,11 +635,18 @@ async function loadAppointmentRequests() {
         <div style="display:flex;flex-direction:column;gap:6px;padding:10px 0;border-bottom:1px solid var(--border);">
           <span><b>${a.owner ? a.owner.name : 'Owner'}</b>${a.pet ? ' · ' + a.pet.name : ''} <span class="text-muted">— ${when} at ${a.requested_time}</span></span>
           ${a.reason ? `<span class="text-muted" style="font-size:12px;">${a.reason}</span>` : ''}
-          <div style="display:flex;gap:8px;align-items:center;">
-            <button class="btn btn-primary" data-accept-appt="${a.id}" style="padding:5px 12px;font-size:12px;">Accept</button>
+          ${a.status === 'proposed' ? `
+            <div class="offer-note">
+              Offered <b>${a.proposed_date} at ${a.proposed_time}</b> — waiting on the owner.
+              ${a.proposed_note ? `<span class="text-muted"> “${staffEscapeHtml(a.proposed_note)}”</span>` : ''}
+            </div>` : ''}
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            ${a.status === 'pending' ? `<button class="btn btn-primary" data-accept-appt="${a.id}" style="padding:5px 12px;font-size:12px;">Accept</button>` : ''}
+            <button class="btn btn-secondary" data-offer-appt="${a.id}" style="padding:5px 12px;font-size:12px;">${a.status === 'proposed' ? 'Change offer' : 'Suggest another time'}</button>
             <button class="btn btn-secondary" data-decline-appt="${a.id}" style="padding:5px 12px;font-size:12px;">Decline</button>
             <span class="text-muted" id="appt-status-${a.id}" style="font-size:12px;"></span>
           </div>
+          <div class="offer-form" id="offer-form-${a.id}" hidden></div>
         </div>`;
     }).join('');
 
@@ -644,9 +654,85 @@ async function loadAppointmentRequests() {
       btn.addEventListener('click', () => handleAppointmentAction(btn.getAttribute('data-accept-appt'), 'accept')));
     el.querySelectorAll('[data-decline-appt]').forEach(btn =>
       btn.addEventListener('click', () => handleAppointmentAction(btn.getAttribute('data-decline-appt'), 'decline')));
+    el.querySelectorAll('[data-offer-appt]').forEach(btn =>
+      btn.addEventListener('click', () => toggleOfferForm(btn.getAttribute('data-offer-appt'))));
   } catch {
     el.innerHTML = '<span class="text-muted">Could not load appointment requests.</span>';
   }
+}
+
+
+/* ── Suggesting a different time ───────────────────────────────────────────
+   The middle ground between Accept and Decline. Staff pick from the same
+   generated grid the owner sees, so an offer is always a slot that is
+   genuinely bookable; the server re-checks anyway and holds the slot until
+   the owner answers. */
+async function toggleOfferForm(id) {
+  const host = document.getElementById(`offer-form-${id}`);
+  if (!host.hidden) { host.hidden = true; host.innerHTML = ''; return; }
+  host.hidden = false;
+  host.innerHTML = `
+    <div class="form-group" style="max-width:200px;margin-bottom:8px;">
+      <label>Offer a date</label>
+      <input type="date" class="offer-date" min="${new Date().toISOString().slice(0,10)}">
+    </div>
+    <div class="offer-slots"><span class="text-muted" style="font-size:12.5px;">Pick a date to see open times.</span></div>
+    <div class="form-group" style="margin-top:10px;">
+      <label>Note to the owner (optional)</label>
+      <input type="text" class="offer-note-input" placeholder="e.g. 09:00 is taken — this works for us">
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;margin-top:8px;">
+      <button class="btn btn-primary offer-send" style="padding:6px 14px;font-size:12.5px;" disabled>Send offer</button>
+      <span class="offer-status text-muted" style="font-size:12px;"></span>
+    </div>`;
+
+  const dateEl = host.querySelector('.offer-date');
+  const slotsEl = host.querySelector('.offer-slots');
+  const sendBtn = host.querySelector('.offer-send');
+  let chosen = null;
+
+  dateEl.addEventListener('change', async () => {
+    chosen = null; sendBtn.disabled = true;
+    slotsEl.innerHTML = '<span class="text-muted" style="font-size:12.5px;">Loading…</span>';
+    try {
+      const res = await fetch(`/api/labs/${staffLabId()}/availability?date=${dateEl.value}`, { credentials: 'same-origin' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'could not load');
+      if (!data.open) { slotsEl.innerHTML = `<span class="text-muted" style="font-size:12.5px;">${staffEscapeHtml(data.reason)}</span>`; return; }
+      const free = data.slots.filter(s => s.status === 'available' || s.status === 'pending');
+      if (!free.length) { slotsEl.innerHTML = '<span class="text-muted" style="font-size:12.5px;">Nothing open that day.</span>'; return; }
+      slotsEl.innerHTML = `<div class="slot-grid">${free.map(s =>
+        `<button type="button" class="slot-btn" data-offer-slot="${s.time}"><span class="slot-time">${s.time}</span></button>`).join('')}</div>`;
+      slotsEl.querySelectorAll('[data-offer-slot]').forEach(b => b.addEventListener('click', () => {
+        slotsEl.querySelectorAll('.slot-btn').forEach(x => x.classList.remove('is-selected'));
+        b.classList.add('is-selected');
+        chosen = b.dataset.offerSlot;
+        sendBtn.disabled = false;
+      }));
+    } catch (e) {
+      slotsEl.innerHTML = `<span class="text-muted" style="font-size:12.5px;color:var(--red);">${staffEscapeHtml(e.message)}</span>`;
+    }
+  });
+
+  sendBtn.addEventListener('click', async () => {
+    const statusEl = host.querySelector('.offer-status');
+    sendBtn.disabled = true; sendBtn.textContent = 'Sending…';
+    try {
+      const res = await fetch(`/api/appointments/${id}/propose`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+        body: JSON.stringify({
+          proposed_date: dateEl.value, proposed_time: chosen,
+          note: host.querySelector('.offer-note-input').value.trim() || null
+        })
+      });
+      if (!res.ok) throw new Error((await res.json()).error || 'could not send offer');
+      loadAppointmentRequests();
+      loadAvailability();
+    } catch (e) {
+      statusEl.style.color = 'var(--red)'; statusEl.textContent = e.message;
+      sendBtn.disabled = false; sendBtn.textContent = 'Send offer';
+    }
+  });
 }
 
 async function handleAppointmentAction(id, action) {

@@ -26,6 +26,11 @@ const CLINIC_ROLES = ['staff', 'vet', 'admin']; // super_admin is platform-wide,
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_RE = /^\d{2}:\d{2}$/;
 
+function prettyDate(dateStr) {
+  return new Date(dateStr + 'T00:00:00')
+    .toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+}
+
 async function serializeAppointment(db, row) {
   const [lab, pet, owner, handledBy] = await Promise.all([
     db.prepare('SELECT id, name, address FROM labs WHERE id = ?').get(row.lab_id),
@@ -38,6 +43,29 @@ async function serializeAppointment(db, row) {
 
 function router(db) {
   const r = express.Router();
+
+  /**
+   * Emails every clinic-role account at the appointment's lab.
+   *
+   * Same recipient rule as a new request: there's no "who's on duty" concept,
+   * so the whole clinic side of that lab is told. super_admin is excluded —
+   * it's a platform role, not a member of any one clinic's inbox.
+   */
+  async function notifyClinic(req, appt, subject, bodyHtml) {
+    const staff = await db.prepare(
+      `SELECT email FROM users WHERE lab_id = ? AND role IN (${CLINIC_ROLES.map(() => '?').join(',')})`
+    ).all(appt.lab_id, ...CLINIC_ROLES);
+    if (!staff.length) return;
+    const origin = appOrigin(req);
+    await Promise.all(staff.map(sMember => email.send({
+      to: sMember.email,
+      subject,
+      html: email.shell({
+        origin, title: subject,
+        bodyHtml: bodyHtml + email.button('Open the clinic dashboard', `${origin}/staff/index.html`)
+      })
+    })));
+  }
 
   // ── Owner requests an appointment ─────────────────────────────────────────
   r.post('/appointments', requireAuth, requireRole('owner'), ah(async (req, res) => {
@@ -240,6 +268,115 @@ function router(db) {
       });
     }
 
+    res.json(appt);
+  }));
+
+  // ── Clinic offers a different time ───────────────────────────────────────
+  // The middle ground between accept and decline: the requested slot doesn't
+  // work (a clash, an emergency, a machine down) but the clinic still wants
+  // the appointment. The original request is preserved alongside the offer
+  // so the owner can see both, and declining the offer doesn't lose it.
+  r.post('/appointments/:id/propose', requireAuth, requireRole('staff', 'vet', 'admin', 'super_admin'), ah(async (req, res) => {
+    const row = await db.prepare('SELECT * FROM appointments WHERE id = ?').get(req.params.id);
+    if (!row) return res.status(404).json({ error: 'appointment request not found' });
+    if (req.user.role !== 'super_admin' && row.lab_id !== req.user.lab_id)
+      return res.status(403).json({ error: 'not permitted for this clinic' });
+    if (!['pending', 'proposed'].includes(row.status))
+      return res.status(409).json({ error: `already ${row.status}` });
+
+    const { proposed_date, proposed_time, note } = req.body || {};
+    if (!proposed_date || !proposed_time)
+      return res.status(400).json({ error: 'proposed_date and proposed_time are required' });
+    if (!DATE_RE.test(proposed_date)) return res.status(400).json({ error: 'proposed_date must be YYYY-MM-DD' });
+    if (!TIME_RE.test(proposed_time)) return res.status(400).json({ error: 'proposed_time must be HH:MM' });
+    if (proposed_date === row.requested_date && proposed_time === row.requested_time)
+      return res.status(400).json({ error: 'that is the time the owner already asked for' });
+
+    // The offered slot has to be genuinely bookable, or the owner would be
+    // sent to accept something that then fails. Its own current offer is
+    // ignored so staff can revise an offer they already made.
+    const ok = await isSelectable(db, row.lab_id, proposed_date, proposed_time, { ignoreAppointmentId: row.id });
+    if (!ok.ok) return res.status(409).json({ error: ok.error });
+
+    try {
+      await db.prepare(`
+        UPDATE appointments
+        SET status = 'proposed', proposed_date = ?, proposed_time = ?, proposed_note = ?,
+            proposed_by_user_id = ?, proposed_at = ?
+        WHERE id = ?
+      `).run(proposed_date, proposed_time, note || null, req.user.id, nowISO(), row.id);
+    } catch (err) {
+      if (err.code === '23505') return res.status(409).json({ error: 'that slot has just been offered to another owner' });
+      throw err;
+    }
+
+    const appt = await serializeAppointment(db, await db.prepare('SELECT * FROM appointments WHERE id = ?').get(row.id));
+
+    if (appt.owner && appt.owner.email) {
+      const origin = appOrigin(req);
+      const petLine = appt.pet ? appt.pet.name : 'your pet';
+      const when = `${prettyDate(proposed_date)} at ${proposed_time}`;
+      const asked = `${prettyDate(row.requested_date)} at ${row.requested_time}`;
+      await email.send({
+        to: appt.owner.email,
+        subject: `A different time for ${petLine} — ${when}`,
+        html: email.shell({
+          origin,
+          title: `${appt.lab.name} suggested another time`,
+          bodyHtml: `<p>You asked for <b>${asked}</b>, which the clinic can't do.</p>
+                     <p>They've offered <b>${when}</b> for <b>${petLine}</b> instead${note ? '' : '.'}</p>
+                     ${note ? `<p><b>Note from the clinic:</b> ${note}</p>` : ''}
+                     <p>The slot is held for you until you answer.</p>
+                     ${email.button('Accept or decline', `${origin}/owner/index.html`)}`
+        })
+      });
+    }
+    res.json(appt);
+  }));
+
+  // ── Owner answers the offer ──────────────────────────────────────────────
+  r.post('/appointments/:id/proposal', requireAuth, requireRole('owner'), ah(async (req, res) => {
+    const row = await db.prepare('SELECT * FROM appointments WHERE id = ?').get(req.params.id);
+    if (!row) return res.status(404).json({ error: 'appointment not found' });
+    if (row.owner_user_id !== req.user.id) return res.status(403).json({ error: 'not your appointment' });
+    if (row.status !== 'proposed') return res.status(409).json({ error: 'there is no offer to answer' });
+
+    const accept = (req.body || {}).accept === true;
+
+    if (!accept) {
+      await db.prepare("UPDATE appointments SET status = 'declined', decline_reason = ? WHERE id = ?")
+        .run('Owner declined the clinic\'s suggested time', row.id);
+      const appt = await serializeAppointment(db, await db.prepare('SELECT * FROM appointments WHERE id = ?').get(row.id));
+      await notifyClinic(req, appt, `${appt.owner.name} turned down the suggested time`,
+        `<p><b>${appt.owner.name}</b> declined ${prettyDate(row.proposed_date)} at ${row.proposed_time}.</p>
+         <p>The slot is free again.</p>`);
+      return res.json(appt);
+    }
+
+    // Re-checked at accept: the offer holds the slot, but the lab's hours may
+    // have changed or a block may have been laid over it since.
+    const ok = await isSelectable(db, row.lab_id, row.proposed_date, row.proposed_time, { ignoreAppointmentId: row.id });
+    if (!ok.ok) return res.status(409).json({ error: ok.error });
+
+    try {
+      // The accepted time becomes the appointment's actual time, so the
+      // existing accepted-slot unique index guards it like any other booking.
+      await db.prepare(`
+        UPDATE appointments
+        SET status = 'accepted', requested_date = ?, requested_time = ?,
+            handled_by_user_id = ?, handled_at = ?
+        WHERE id = ?
+      `).run(row.proposed_date, row.proposed_time, row.proposed_by_user_id, nowISO(), row.id);
+    } catch (err) {
+      if (err.code === '23505') return res.status(409).json({ error: 'that slot was booked while you were deciding' });
+      throw err;
+    }
+
+    const appt = await serializeAppointment(db, await db.prepare('SELECT * FROM appointments WHERE id = ?').get(row.id));
+    await notifyClinic(req, appt, `${appt.owner.name} accepted ${prettyDate(appt.requested_date)} at ${appt.requested_time}`,
+      `<p><b>${appt.owner.name}</b> accepted the time you suggested for
+       <b>${appt.pet ? appt.pet.name : 'their pet'}</b>.</p>
+       <p><b>Confirmed:</b> ${prettyDate(appt.requested_date)} at ${appt.requested_time}</p>`);
     res.json(appt);
   }));
 

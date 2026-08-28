@@ -6,7 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <title>Vitarus · Owner Portal</title>
-<link rel="stylesheet" href="../css/shared.css?v=10">
+<link rel="stylesheet" href="../css/shared.css?v=11">
 <link rel="stylesheet" href="../css/redesign.css?v=5">
 <link rel="stylesheet" href="../css/report.css?v=6">
 <style>
@@ -938,6 +938,7 @@ document.getElementById('btn-compare-go').addEventListener('click', () => {
 // ════════════════════════════════════════════════════════════════════════
 const APPT_STATUS_META = {
   pending:   { label: 'Pending',  cls: 'status-pending' },
+  proposed:  { label: 'New time offered', cls: 'status-pending' },
   accepted:  { label: 'Confirmed', cls: 'status-200' },
   declined:  { label: 'Declined',  cls: 'status-error' },
   cancelled: { label: 'Cancelled', cls: 'status-error' }
@@ -974,7 +975,7 @@ async function loadAppointments() {
   try {
     const res = await fetch('/api/appointments/mine', { credentials: 'same-origin' });
     const appts = await res.json();
-    setOwnerBadge('appts-badge', appts.filter(a => a.status === 'pending').length);
+    setOwnerBadge('appts-badge', appts.filter(a => a.status === 'pending' || a.status === 'proposed').length);
     if (!appts.length) {
       el.innerHTML = '<span class="text-muted">No requests yet — use the form below to ask a clinic for a slot.</span>';
       return;
@@ -992,10 +993,47 @@ async function loadAppointments() {
             </div>
           </div>
           <span class="status-pill ${meta.cls}">● ${meta.label}</span>
-        </div>`;
+        </div>
+        ${a.status === 'proposed' ? `
+        <div class="offer-card">
+          <div class="offer-card-head">The clinic can't do ${when} at ${a.requested_time}</div>
+          <div class="offer-card-when">They've offered
+            <b>${new Date(`${a.proposed_date}T00:00:00`).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })} at ${a.proposed_time}</b>
+          </div>
+          ${a.proposed_note ? `<div class="offer-card-note">“${escapeHtml(a.proposed_note)}”</div>` : ''}
+          <div class="offer-card-actions">
+            <button class="btn btn-primary" data-offer-yes="${a.id}" style="padding:7px 14px;font-size:12.5px;">Accept this time</button>
+            <button class="btn btn-secondary" data-offer-no="${a.id}" style="padding:7px 14px;font-size:12.5px;">No thanks</button>
+            <span class="text-muted" id="offer-status-${a.id}" style="font-size:12px;"></span>
+          </div>
+        </div>` : ''}`;
     }).join('');
+
+    el.querySelectorAll('[data-offer-yes]').forEach(b =>
+      b.addEventListener('click', () => answerOffer(b.getAttribute('data-offer-yes'), true)));
+    el.querySelectorAll('[data-offer-no]').forEach(b =>
+      b.addEventListener('click', () => answerOffer(b.getAttribute('data-offer-no'), false)));
   } catch {
     el.innerHTML = '<span class="text-muted">Could not load appointments.</span>';
+  }
+}
+
+/* Accepting an offer moves the appointment to the offered time and locks it;
+   the slot was held meanwhile, but the server re-checks in case the clinic's
+   hours changed while the owner was deciding. */
+async function answerOffer(id, accept) {
+  const statusEl = document.getElementById(`offer-status-${id}`);
+  if (statusEl) { statusEl.style.color = 'var(--text-muted)'; statusEl.textContent = accept ? 'Confirming…' : 'Sending…'; }
+  try {
+    const res = await fetch(`/api/appointments/${id}/proposal`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin', body: JSON.stringify({ accept })
+    });
+    if (!res.ok) throw new Error((await res.json()).error || 'could not send your answer');
+    loadAppointments();
+    loadSlots();
+  } catch (e) {
+    if (statusEl) { statusEl.style.color = 'var(--red)'; statusEl.textContent = e.message; }
   }
 }
 
@@ -1009,6 +1047,7 @@ let selectedSlot = null;
 const SLOT_STATE = {
   available: { label: '',            selectable: true  },
   pending:   { label: 'requested',   selectable: true  },
+  held:      { label: 'held',        selectable: false },
   booked:    { label: 'booked',      selectable: false },
   blocked:   { label: 'unavailable', selectable: false },
   past:      { label: '',            selectable: false }
