@@ -6,8 +6,55 @@ let allExams    = [];
 let allLabs     = [];
 let currentLab  = null;
 
+
+/* ── My Profile ────────────────────────────────────────────────────────────
+   PATCH /api/auth/profile already accepted these fields for any signed-in
+   user; the admin console just had no way to reach it, so an admin could
+   edit everyone's account except their own. */
+function fillProfileForm(user) {
+  if (!user) return;
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v || ''; };
+  set('prof-name', user.name);
+  set('prof-email', user.email);
+  set('prof-phone', user.phone);
+  set('prof-specialty', user.specialty);
+  set('prof-clinic', user.clinic_name);
+  set('prof-address', user.address);
+}
+
+async function saveProfile() {
+  const statusEl = document.getElementById('profile-status');
+  const btn = document.getElementById('btn-save-profile');
+  const val = id => { const el = document.getElementById(id); return el ? el.value.trim() : undefined; };
+  const name = val('prof-name');
+  if (!name) {
+    statusEl.style.color = 'var(--red)';
+    statusEl.textContent = 'Name cannot be empty.';
+    return;
+  }
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    const res = await fetch('/api/auth/profile', {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+      body: JSON.stringify({ name, phone: val('prof-phone'), specialty: val('prof-specialty'),
+                             clinic_name: val('prof-clinic'), address: val('prof-address') })
+    });
+    if (!res.ok) throw new Error((await res.json()).error || 'could not save');
+    currentUser = await res.json();
+    // The header strip carries the signed-in name, so it has to follow.
+    AuthGuard.renderStrip(currentUser, '#auth-strip-mount');
+    statusEl.style.color = '#3fb950';
+    statusEl.textContent = 'Profile saved.';
+  } catch (e) {
+    statusEl.style.color = 'var(--red)';
+    statusEl.textContent = e.message;
+  } finally {
+    btn.disabled = false; btn.textContent = 'Save changes';
+  }
+}
+
 /* ── Tab switching ─────────────────────────────────────────────────────── */
-const TABS = ['overview', 'labs', 'users', 'exams', 'accounts', 'super'];
+const TABS = ['overview', 'labs', 'users', 'exams', 'accounts', 'super', 'profile'];
 function showTab(name) {
   TABS.forEach(t => {
     const el = document.getElementById('tab-' + t);
@@ -26,6 +73,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     if (tab === 'exams' && !allExams.length) loadAllExams();
     if (tab === 'accounts') loadClinicAccounts();
     if (tab === 'super') loadSuperStats();
+    if (tab === 'profile') fillProfileForm(currentUser);
   });
 });
 
@@ -957,5 +1005,7 @@ AuthGuard.requireRole('admin', 'super_admin').then(user => {
     document.getElementById('tab-btn-labs').textContent = 'My Lab';
   }
 
+  fillProfileForm(user);
+  document.getElementById('btn-save-profile').addEventListener('click', saveProfile);
   loadOverview();
 });
