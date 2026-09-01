@@ -2,7 +2,7 @@
  * server/lib/labs-api.js
  *
  * Laboratory management: super_admin can create/manage every lab; admin
- * manages only the one lab they belong to (req.user.lab_id). Each lab
+ * manages the labs assigned to them (user_labs; see permissions.js). Each lab
  * carries its own staff, assigned doctors (vets), and a machine roster
  * with an operational state.
  */
@@ -10,11 +10,18 @@ const express = require('express');
 const { nowISO } = require('./utils');
 const { requireAuth, requireRole } = require('./auth');
 const { ah } = require('./async-handler');
+const { canActOnLab, labsFor, requirePermission } = require('./permissions');
 
 const MACHINE_STATES = ['operational', 'maintenance', 'offline'];
 
-function canManageLab(user, labId) {
-  return user.role === 'super_admin' || (user.role === 'admin' && user.lab_id === labId);
+/**
+ * Admins can cover more than one lab, so this is a set membership test
+ * rather than a comparison against their single home lab_id. Async because
+ * the set lives in user_labs — every caller awaits it.
+ */
+async function canManageLab(db, user, labId) {
+  if (user.role !== 'super_admin' && user.role !== 'admin') return false;
+  return canActOnLab(db, user, labId);
 }
 
 async function serializeLab(db, lab) {
@@ -57,8 +64,9 @@ function router(db) {
     if (req.user.role === 'super_admin') {
       rows = await db.prepare('SELECT * FROM labs ORDER BY created_at DESC').all();
     } else {
-      rows = req.user.lab_id
-        ? await db.prepare('SELECT * FROM labs WHERE id = ?').all(req.user.lab_id)
+      const labIds = await labsFor(db, req.user);
+      rows = labIds.length
+        ? await db.prepare(`SELECT * FROM labs WHERE id IN (${labIds.map(() => '?').join(',')}) ORDER BY name`).all(...labIds)
         : [];
     }
     res.json(await Promise.all(rows.map(l => serializeLab(db, l))));
@@ -68,15 +76,15 @@ function router(db) {
   r.get('/labs/:id', requireAuth, requireRole('admin', 'super_admin'), ah(async (req, res) => {
     const lab = await db.prepare('SELECT * FROM labs WHERE id = ?').get(req.params.id);
     if (!lab) return res.status(404).json({ error: 'lab not found' });
-    if (!canManageLab(req.user, lab.id)) return res.status(403).json({ error: 'not permitted for this lab' });
+    if (!(await canManageLab(db, req.user, lab.id))) return res.status(403).json({ error: 'not permitted for this lab' });
     res.json(await serializeLab(db, lab));
   }));
 
   // ── Update lab info (name/address) ────────────────────────────────────────
-  r.patch('/labs/:id', requireAuth, requireRole('admin', 'super_admin'), ah(async (req, res) => {
+  r.patch('/labs/:id', requireAuth, requireRole('admin', 'super_admin'), requirePermission(db, 'lab.edit'), ah(async (req, res) => {
     const lab = await db.prepare('SELECT * FROM labs WHERE id = ?').get(req.params.id);
     if (!lab) return res.status(404).json({ error: 'lab not found' });
-    if (!canManageLab(req.user, lab.id)) return res.status(403).json({ error: 'not permitted for this lab' });
+    if (!(await canManageLab(db, req.user, lab.id))) return res.status(403).json({ error: 'not permitted for this lab' });
 
     const { name, address } = req.body || {};
     await db.prepare('UPDATE labs SET name = ?, address = ? WHERE id = ?')
@@ -94,17 +102,17 @@ function router(db) {
     // Clinic staff need to read the schedule to block time against it, but
     // only for the lab they belong to.
     const isClinicStaff = req.user.role === 'staff' || req.user.role === 'vet';
-    if (isClinicStaff ? lab.id !== req.user.lab_id : !canManageLab(req.user, lab.id))
+    if (!(await canActOnLab(db, req.user, lab.id)))
       return res.status(403).json({ error: 'not permitted for this lab' });
 
     const hours = await db.prepare('SELECT weekday, is_open, opens_at, closes_at FROM lab_hours WHERE lab_id = ? ORDER BY weekday').all(lab.id);
     res.json({ lab_id: lab.id, lab_name: lab.name, slot_minutes: lab.slot_minutes || 30, hours });
   }));
 
-  r.put('/labs/:id/schedule', requireAuth, requireRole('admin', 'super_admin'), ah(async (req, res) => {
+  r.put('/labs/:id/schedule', requireAuth, requireRole('admin', 'super_admin'), requirePermission(db, 'schedule.manage'), ah(async (req, res) => {
     const lab = await db.prepare('SELECT * FROM labs WHERE id = ?').get(req.params.id);
     if (!lab) return res.status(404).json({ error: 'lab not found' });
-    if (!canManageLab(req.user, lab.id)) return res.status(403).json({ error: 'not permitted for this lab' });
+    if (!(await canManageLab(db, req.user, lab.id))) return res.status(403).json({ error: 'not permitted for this lab' });
 
     const { slot_minutes, hours } = req.body || {};
 
@@ -160,7 +168,7 @@ function router(db) {
     const labId = Number(req.params.id);
     const lab = await db.prepare('SELECT id FROM labs WHERE id = ?').get(labId);
     if (!lab) return res.status(404).json({ error: 'lab not found' });
-    if (req.user.role !== 'super_admin' && labId !== req.user.lab_id)
+    if (!(await canActOnLab(db, req.user, labId)))
       return res.status(403).json({ error: 'not permitted for this lab' });
     res.json(await db.prepare(
       'SELECT id, name, machine_type, state FROM lab_machines WHERE lab_id = ? ORDER BY name'
@@ -168,10 +176,10 @@ function router(db) {
   }));
 
   // ── Add a machine to a lab ────────────────────────────────────────────────
-  r.post('/labs/:id/machines', requireAuth, requireRole('admin', 'super_admin'), ah(async (req, res) => {
+  r.post('/labs/:id/machines', requireAuth, requireRole('admin', 'super_admin'), requirePermission(db, 'machines.manage'), ah(async (req, res) => {
     const lab = await db.prepare('SELECT * FROM labs WHERE id = ?').get(req.params.id);
     if (!lab) return res.status(404).json({ error: 'lab not found' });
-    if (!canManageLab(req.user, lab.id)) return res.status(403).json({ error: 'not permitted for this lab' });
+    if (!(await canManageLab(db, req.user, lab.id))) return res.status(403).json({ error: 'not permitted for this lab' });
 
     const { name, machine_type, state } = req.body || {};
     if (!name) return res.status(400).json({ error: 'name is required' });
@@ -184,10 +192,10 @@ function router(db) {
   }));
 
   // ── Update a machine (name/type/state) ────────────────────────────────────
-  r.patch('/labs/machines/:machineId', requireAuth, requireRole('admin', 'super_admin'), ah(async (req, res) => {
+  r.patch('/labs/machines/:machineId', requireAuth, requireRole('admin', 'super_admin'), requirePermission(db, 'machines.manage'), ah(async (req, res) => {
     const machine = await db.prepare('SELECT * FROM lab_machines WHERE id = ?').get(req.params.machineId);
     if (!machine) return res.status(404).json({ error: 'machine not found' });
-    if (!canManageLab(req.user, machine.lab_id)) return res.status(403).json({ error: 'not permitted for this lab' });
+    if (!(await canManageLab(db, req.user, machine.lab_id))) return res.status(403).json({ error: 'not permitted for this lab' });
 
     const { name, machine_type, state } = req.body || {};
     if (state !== undefined && !MACHINE_STATES.includes(state))
@@ -203,10 +211,10 @@ function router(db) {
   }));
 
   // ── Remove a machine ───────────────────────────────────────────────────────
-  r.delete('/labs/machines/:machineId', requireAuth, requireRole('admin', 'super_admin'), ah(async (req, res) => {
+  r.delete('/labs/machines/:machineId', requireAuth, requireRole('admin', 'super_admin'), requirePermission(db, 'machines.manage'), ah(async (req, res) => {
     const machine = await db.prepare('SELECT * FROM lab_machines WHERE id = ?').get(req.params.machineId);
     if (!machine) return res.status(404).json({ error: 'machine not found' });
-    if (!canManageLab(req.user, machine.lab_id)) return res.status(403).json({ error: 'not permitted for this lab' });
+    if (!(await canManageLab(db, req.user, machine.lab_id))) return res.status(403).json({ error: 'not permitted for this lab' });
 
     await db.prepare('DELETE FROM lab_machines WHERE id = ?').run(machine.id);
     res.json({ ok: true });

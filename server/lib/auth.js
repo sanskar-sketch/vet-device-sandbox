@@ -12,11 +12,24 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const { nowISO, appOrigin } = require('./utils');
 const { ah } = require('./async-handler');
+const { requirePermission, canActOnLab, labsFor } = require('./permissions');
 const email = require('./email');
 
 const hashToken = token => crypto.createHash('sha256').update(token).digest('hex');
 
 const CLINIC_ROLES = ['vet', 'staff', 'admin', 'super_admin'];
+
+/**
+ * publicUser plus the caller's effective permissions and lab set, so the UI
+ * can hide what the API would refuse. The client must never be the only
+ * gate — every route still checks server-side — but showing a button that
+ * always 403s is its own kind of bug.
+ */
+async function publicUserWithAccess(db, u) {
+  const perms = require('./permissions');
+  const base = publicUser(u);
+  return { ...base, permissions: await perms.permissionsFor(db, u), lab_ids: await perms.labsFor(db, u) };
+}
 
 function publicUser(u) {
   return {
@@ -62,7 +75,7 @@ function router(db) {
 
     const user = await db.prepare('SELECT * FROM users WHERE id = ?').get(info.lastInsertRowid);
     req.session.userId = user.id;
-    res.json(publicUser(user));
+    res.json(await publicUserWithAccess(db, user));
   }));
 
   // ── Login ────────────────────────────────────────────────────────────────
@@ -76,7 +89,7 @@ function router(db) {
       return res.status(401).json({ error: 'invalid email or password' });
 
     req.session.userId = user.id;
-    res.json(publicUser(user));
+    res.json(await publicUserWithAccess(db, user));
   }));
 
   // ── Forgot password ──────────────────────────────────────────────────────
@@ -143,7 +156,7 @@ function router(db) {
     if (!req.session.userId) return res.status(401).json({ error: 'not signed in' });
     const user = await db.prepare('SELECT * FROM users WHERE id = ?').get(req.session.userId);
     if (!user) return res.status(401).json({ error: 'not signed in' });
-    res.json(publicUser(user));
+    res.json(await publicUserWithAccess(db, user));
   }));
 
   // ── Update own profile (any role) ────────────────────────────────────────
@@ -168,7 +181,7 @@ function router(db) {
   // ── Create clinic account (admin / super_admin) ──────────────────────────
   // Staff/vet/admin all belong to a lab. super_admin picks any lab for the
   // new account; admin's new accounts are forced into their own lab.
-  r.post('/users', requireAuth, ah(async (req, res) => {
+  r.post('/users', requireAuth, requirePermission(db, 'accounts.create'), ah(async (req, res) => {
     if (!isAdmin(req.user))
       return res.status(403).json({ error: 'not permitted for this role' });
 
@@ -192,7 +205,12 @@ function router(db) {
       if (lab_id != null && !(await db.prepare('SELECT id FROM labs WHERE id = ?').get(lab_id)))
         return res.status(400).json({ error: 'lab_id does not reference an existing lab' });
     } else {
-      lab_id = req.user.lab_id || null;
+      // An admin may place the account in any lab they cover; unspecified
+      // falls back to their home lab, which is the pre-multi-lab behaviour.
+      const requested = req.body.lab_id != null ? Number(req.body.lab_id) : null;
+      if (requested != null && !(await canActOnLab(db, req.user, requested)))
+        return res.status(403).json({ error: 'you do not manage that lab' });
+      lab_id = requested != null ? requested : (req.user.lab_id || null);
     }
 
     const existing = await db.prepare('SELECT id FROM users WHERE email = ?').get(email);
@@ -214,7 +232,7 @@ function router(db) {
   // owners don't belong to a lab. super_admin sees every lab; admin sees
   // only their own lab's accounts. Joins labs for a display-ready lab_name
   // rather than making the frontend resolve lab_id itself.
-  r.get('/users', requireAuth, ah(async (req, res) => {
+  r.get('/users', requireAuth, requirePermission(db, 'accounts.view'), ah(async (req, res) => {
     if (!isAdmin(req.user))
       return res.status(403).json({ error: 'not permitted for this role' });
 
@@ -234,7 +252,7 @@ function router(db) {
         FROM users u LEFT JOIN labs l ON l.id = u.lab_id
         WHERE u.role != 'owner' AND u.lab_id = ?
         ORDER BY u.created_at DESC
-      `).all(req.user.lab_id || -1);
+      `).all(...(await labsFor(db, req.user)));
     }
     res.json(rows);
   }));
@@ -249,14 +267,14 @@ function router(db) {
   // accounts) — same reasoning applied here so an admin can't edit a peer
   // admin, promote someone to admin, or move an account to a different lab
   // out from under their own oversight.
-  r.patch('/users/:id', requireAuth, requireRole('admin', 'super_admin'), ah(async (req, res) => {
+  r.patch('/users/:id', requireAuth, requireRole('admin', 'super_admin'), requirePermission(db, 'accounts.edit'), ah(async (req, res) => {
     const target = await db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
     if (!target) return res.status(404).json({ error: 'user not found' });
     if (target.role === 'owner') return res.status(400).json({ error: 'owner accounts are not managed here' });
 
     const isSuperAdmin = req.user.role === 'super_admin';
     if (!isSuperAdmin) {
-      if (target.lab_id !== req.user.lab_id) return res.status(403).json({ error: 'not permitted for this lab' });
+      if (!(await canActOnLab(db, req.user, target.lab_id))) return res.status(403).json({ error: 'not permitted for this lab' });
       if (!['vet', 'staff'].includes(target.role)) return res.status(403).json({ error: 'not permitted for this account' });
     }
 
@@ -271,8 +289,8 @@ function router(db) {
     let newLabId = target.lab_id;
     if (lab_id !== undefined) {
       newLabId = lab_id === null ? null : Number(lab_id);
-      if (!isSuperAdmin && newLabId !== req.user.lab_id)
-        return res.status(403).json({ error: 'admins cannot move accounts to a different lab' });
+      if (!isSuperAdmin && !(await canActOnLab(db, req.user, newLabId)))
+        return res.status(403).json({ error: 'you can only move accounts between labs you manage' });
       if (newLabId != null && !(await db.prepare('SELECT id FROM labs WHERE id = ?').get(newLabId)))
         return res.status(400).json({ error: 'lab_id does not reference an existing lab' });
     }
@@ -309,7 +327,7 @@ function router(db) {
   // Scope mirrors the PATCH rule above: admin can only delete vet/staff
   // accounts that belong to their own lab; super_admin can delete any
   // non-owner account.
-  r.delete('/users/:id', requireAuth, requireRole('admin', 'super_admin'), ah(async (req, res) => {
+  r.delete('/users/:id', requireAuth, requireRole('admin', 'super_admin'), requirePermission(db, 'accounts.delete'), ah(async (req, res) => {
     const targetId = Number(req.params.id);
     if (targetId === req.user.id)
       return res.status(400).json({ error: 'you cannot delete your own account' });
@@ -323,7 +341,7 @@ function router(db) {
       // admin: can only delete vet/staff in their own lab
       if (!['vet', 'staff'].includes(target.role))
         return res.status(403).json({ error: 'not permitted for this account' });
-      if (target.lab_id !== req.user.lab_id)
+      if (!(await canActOnLab(db, req.user, target.lab_id)))
         return res.status(403).json({ error: 'not permitted for this lab' });
     }
 
@@ -351,7 +369,7 @@ function router(db) {
     } else {
       vets = await db.prepare(
         "SELECT id, name, email, specialty, lab_id FROM users WHERE role = 'vet' AND lab_id = ? ORDER BY name ASC"
-      ).all(req.user.lab_id || -1);
+      ).all(...(await labsFor(db, req.user)));
     }
     res.json(vets);
   }));
@@ -380,6 +398,74 @@ function router(db) {
 
     const updated = await db.prepare('SELECT * FROM users WHERE id = ?').get(target.id);
     res.json(publicUser(updated));
+  }));
+
+  // ── Role permissions (super_admin only) ──────────────────────────────────
+  // Roles are fixed; what's editable is the permission set behind 'admin'
+  // and 'staff'. super_admin is not listed and not editable — see the note
+  // in server/lib/permissions.js.
+  r.get('/permissions', requireAuth, requireRole('super_admin'), ah(async (req, res) => {
+    const perms = require('./permissions');
+    const rows = await db.prepare('SELECT role, permission, allowed FROM role_permissions').all();
+    const byRole = {};
+    for (const role of perms.EDITABLE_ROLES) byRole[role] = {};
+    for (const row of rows) if (byRole[row.role]) byRole[row.role][row.permission] = Boolean(row.allowed);
+    res.json({ catalogue: perms.PERMISSIONS, editableRoles: perms.EDITABLE_ROLES, roles: byRole });
+  }));
+
+  r.put('/permissions/:role', requireAuth, requireRole('super_admin'), ah(async (req, res) => {
+    const perms = require('./permissions');
+    const role = req.params.role;
+    if (!perms.EDITABLE_ROLES.includes(role))
+      return res.status(400).json({ error: `only ${perms.EDITABLE_ROLES.join(' and ')} permissions are editable` });
+
+    const granted = (req.body && req.body.permissions) || [];
+    if (!Array.isArray(granted)) return res.status(400).json({ error: 'permissions must be an array of keys' });
+    const unknown = granted.filter(k => !perms.PERMISSION_KEYS.includes(k));
+    if (unknown.length) return res.status(400).json({ error: `unknown permission(s): ${unknown.join(', ')}` });
+
+    for (const key of perms.PERMISSION_KEYS) {
+      await db.prepare(`
+        INSERT INTO role_permissions (role, permission, allowed) VALUES (?, ?, ?)
+        ON CONFLICT (role, permission) DO UPDATE SET allowed = EXCLUDED.allowed
+        RETURNING role
+      `).run(role, key, granted.includes(key));
+    }
+    perms.invalidate();
+    res.json({ role, permissions: granted });
+  }));
+
+  // ── Which labs an admin covers (super_admin only) ────────────────────────
+  r.get('/users/:id/labs', requireAuth, requireRole('super_admin'), ah(async (req, res) => {
+    const rows = await db.prepare('SELECT lab_id FROM user_labs WHERE user_id = ?').all(req.params.id);
+    res.json(rows.map(r2 => r2.lab_id));
+  }));
+
+  r.put('/users/:id/labs', requireAuth, requireRole('super_admin'), ah(async (req, res) => {
+    const target = await db.prepare('SELECT id, role, lab_id FROM users WHERE id = ?').get(req.params.id);
+    if (!target) return res.status(404).json({ error: 'user not found' });
+    if (target.role !== 'admin')
+      return res.status(400).json({ error: 'only admin accounts can cover more than one lab' });
+
+    const labIds = [...new Set(((req.body && req.body.lab_ids) || []).map(Number).filter(Boolean))];
+    if (!labIds.length)
+      return res.status(400).json({ error: 'an admin must cover at least one lab' });
+
+    for (const id of labIds) {
+      if (!(await db.prepare('SELECT id FROM labs WHERE id = ?').get(id)))
+        return res.status(400).json({ error: `lab ${id} does not exist` });
+    }
+
+    await db.prepare('DELETE FROM user_labs WHERE user_id = ?').run(target.id);
+    for (const id of labIds) {
+      await db.prepare('INSERT INTO user_labs (user_id, lab_id) VALUES (?, ?) RETURNING user_id').run(target.id, id);
+    }
+    // users.lab_id stays the home lab that account creation and existing
+    // queries key off; keep it pointing at one the admin actually covers.
+    if (!labIds.includes(target.lab_id)) {
+      await db.prepare('UPDATE users SET lab_id = ? WHERE id = ?').run(labIds[0], target.id);
+    }
+    res.json({ user_id: target.id, lab_ids: labIds });
   }));
 
   return r;

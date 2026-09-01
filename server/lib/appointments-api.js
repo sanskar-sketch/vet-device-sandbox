@@ -21,6 +21,7 @@ const { requireAuth, requireRole } = require('./auth');
 const { ah } = require('./async-handler');
 const email = require('./email');
 const { availabilityFor, isSelectable } = require('./availability');
+const { canActOnLab, labsFor, requirePermission } = require('./permissions');
 
 const CLINIC_ROLES = ['staff', 'vet', 'admin']; // super_admin is platform-wide, not tied to one lab's inbox
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -143,13 +144,12 @@ function router(db) {
   // ── Staff-declared unavailability ────────────────────────────────────────
   // An offline booking, an emergency, an early close. Staff manage their own
   // lab's blocks; super_admin can act on any.
-  function canBlockFor(user, labId) {
-    return user.role === 'super_admin' || labId === user.lab_id;
-  }
+  // Admins can cover several labs, so this is a set-membership test.
+  const canBlockFor = (user, labId) => canActOnLab(db, user, labId);
 
   r.get('/labs/:id/blocks', requireAuth, requireRole(...CLINIC_ROLES, 'super_admin'), ah(async (req, res) => {
     const labId = Number(req.params.id);
-    if (!canBlockFor(req.user, labId)) return res.status(403).json({ error: 'not permitted for this clinic' });
+    if (!(await canBlockFor(req.user, labId))) return res.status(403).json({ error: 'not permitted for this clinic' });
     const rows = req.query.date
       ? await db.prepare('SELECT * FROM slot_blocks WHERE lab_id = ? AND block_date = ? ORDER BY start_time').all(labId, req.query.date)
       : await db.prepare('SELECT * FROM slot_blocks WHERE lab_id = ? AND block_date >= ? ORDER BY block_date, start_time')
@@ -157,9 +157,9 @@ function router(db) {
     res.json(rows);
   }));
 
-  r.post('/labs/:id/blocks', requireAuth, requireRole(...CLINIC_ROLES, 'super_admin'), ah(async (req, res) => {
+  r.post('/labs/:id/blocks', requireAuth, requireRole(...CLINIC_ROLES, 'super_admin'), requirePermission(db, 'availability.manage'), ah(async (req, res) => {
     const labId = Number(req.params.id);
-    if (!canBlockFor(req.user, labId)) return res.status(403).json({ error: 'not permitted for this clinic' });
+    if (!(await canBlockFor(req.user, labId))) return res.status(403).json({ error: 'not permitted for this clinic' });
 
     const { block_date, start_time, end_time, reason } = req.body || {};
     if (!block_date || !start_time || !end_time)
@@ -186,10 +186,10 @@ function router(db) {
     res.json(await db.prepare('SELECT * FROM slot_blocks WHERE id = ?').get(info.lastInsertRowid));
   }));
 
-  r.delete('/blocks/:blockId', requireAuth, requireRole(...CLINIC_ROLES, 'super_admin'), ah(async (req, res) => {
+  r.delete('/blocks/:blockId', requireAuth, requireRole(...CLINIC_ROLES, 'super_admin'), requirePermission(db, 'availability.manage'), ah(async (req, res) => {
     const block = await db.prepare('SELECT * FROM slot_blocks WHERE id = ?').get(req.params.blockId);
     if (!block) return res.status(404).json({ error: 'block not found' });
-    if (!canBlockFor(req.user, block.lab_id)) return res.status(403).json({ error: 'not permitted for this clinic' });
+    if (!(await canBlockFor(req.user, block.lab_id))) return res.status(403).json({ error: 'not permitted for this clinic' });
     await db.prepare('DELETE FROM slot_blocks WHERE id = ?').run(block.id);
     res.json({ ok: true });
   }));
@@ -201,7 +201,7 @@ function router(db) {
   }));
 
   // ── Clinic: requests for their own lab (super_admin: all, or ?lab_id=) ────
-  r.get('/appointments', requireAuth, requireRole('staff', 'vet', 'admin', 'super_admin'), ah(async (req, res) => {
+  r.get('/appointments', requireAuth, requireRole('staff', 'vet', 'admin', 'super_admin'), requirePermission(db, 'appointments.view'), ah(async (req, res) => {
     const status = req.query.status;
     let rows;
     if (req.user.role === 'super_admin') {
@@ -210,17 +210,20 @@ function router(db) {
         ? await db.prepare('SELECT * FROM appointments WHERE lab_id = ? ORDER BY requested_date ASC, requested_time ASC').all(labId)
         : await db.prepare('SELECT * FROM appointments ORDER BY requested_date ASC, requested_time ASC').all();
     } else {
-      rows = await db.prepare('SELECT * FROM appointments WHERE lab_id = ? ORDER BY requested_date ASC, requested_time ASC').all(req.user.lab_id || -1);
+      const labIds = await labsFor(db, req.user);
+      rows = labIds.length
+        ? await db.prepare(`SELECT * FROM appointments WHERE lab_id IN (${labIds.map(() => '?').join(',')}) ORDER BY requested_date ASC, requested_time ASC`).all(...labIds)
+        : [];
     }
     if (status) rows = rows.filter(a => a.status === status);
     res.json(await Promise.all(rows.map(row => serializeAppointment(db, row))));
   }));
 
   // ── Clinic accepts — locks the slot ────────────────────────────────────────
-  r.post('/appointments/:id/accept', requireAuth, requireRole('staff', 'vet', 'admin', 'super_admin'), ah(async (req, res) => {
+  r.post('/appointments/:id/accept', requireAuth, requireRole('staff', 'vet', 'admin', 'super_admin'), requirePermission(db, 'appointments.handle'), ah(async (req, res) => {
     const row = await db.prepare('SELECT * FROM appointments WHERE id = ?').get(req.params.id);
     if (!row) return res.status(404).json({ error: 'appointment request not found' });
-    if (req.user.role !== 'super_admin' && row.lab_id !== req.user.lab_id)
+    if (!(await canActOnLab(db, req.user, row.lab_id)))
       return res.status(403).json({ error: 'not permitted for this clinic' });
     if (row.status !== 'pending') return res.status(409).json({ error: `already ${row.status}` });
 
@@ -276,10 +279,10 @@ function router(db) {
   // work (a clash, an emergency, a machine down) but the clinic still wants
   // the appointment. The original request is preserved alongside the offer
   // so the owner can see both, and declining the offer doesn't lose it.
-  r.post('/appointments/:id/propose', requireAuth, requireRole('staff', 'vet', 'admin', 'super_admin'), ah(async (req, res) => {
+  r.post('/appointments/:id/propose', requireAuth, requireRole('staff', 'vet', 'admin', 'super_admin'), requirePermission(db, 'appointments.handle'), ah(async (req, res) => {
     const row = await db.prepare('SELECT * FROM appointments WHERE id = ?').get(req.params.id);
     if (!row) return res.status(404).json({ error: 'appointment request not found' });
-    if (req.user.role !== 'super_admin' && row.lab_id !== req.user.lab_id)
+    if (!(await canActOnLab(db, req.user, row.lab_id)))
       return res.status(403).json({ error: 'not permitted for this clinic' });
     if (!['pending', 'proposed'].includes(row.status))
       return res.status(409).json({ error: `already ${row.status}` });
@@ -381,10 +384,10 @@ function router(db) {
   }));
 
   // ── Clinic declines — nothing locked, owner is told either way ───────────
-  r.post('/appointments/:id/decline', requireAuth, requireRole('staff', 'vet', 'admin', 'super_admin'), ah(async (req, res) => {
+  r.post('/appointments/:id/decline', requireAuth, requireRole('staff', 'vet', 'admin', 'super_admin'), requirePermission(db, 'appointments.handle'), ah(async (req, res) => {
     const row = await db.prepare('SELECT * FROM appointments WHERE id = ?').get(req.params.id);
     if (!row) return res.status(404).json({ error: 'appointment request not found' });
-    if (req.user.role !== 'super_admin' && row.lab_id !== req.user.lab_id)
+    if (!(await canActOnLab(db, req.user, row.lab_id)))
       return res.status(403).json({ error: 'not permitted for this clinic' });
     if (row.status !== 'pending') return res.status(409).json({ error: `already ${row.status}` });
 

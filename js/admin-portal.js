@@ -7,6 +7,151 @@ let allLabs     = [];
 let currentLab  = null;
 
 
+
+/* ── Role permissions & lab coverage (super_admin) ─────────────────────────
+   Roles themselves are fixed — this edits what 'admin' and 'staff' may do,
+   and which labs each admin covers. super_admin is deliberately absent from
+   the matrix: it always holds every permission, so no save here can remove
+   the ability to undo that save. The server enforces all of this
+   independently; the UI only mirrors it. */
+let permCatalogue = null;
+
+async function loadPermissions() {
+  const host = document.getElementById('perm-matrix');
+  if (!host) return;
+  try {
+    const res = await fetch('/api/auth/permissions', { credentials: 'same-origin' });
+    if (!res.ok) throw new Error((await res.json()).error || 'could not load permissions');
+    permCatalogue = await res.json();
+    renderPermMatrix();
+  } catch (e) {
+    host.innerHTML = `<span class="text-muted" style="color:var(--red);">${e.message}</span>`;
+  }
+}
+
+function renderPermMatrix() {
+  const host = document.getElementById('perm-matrix');
+  const { catalogue, editableRoles, roles } = permCatalogue;
+  const groups = [...new Set(catalogue.map(p => p.group))];
+
+  host.innerHTML = `
+    <table class="data-table perm-table">
+      <thead><tr>
+        <th>Permission</th>
+        ${editableRoles.map(r => `<th class="perm-col">${r === 'admin' ? 'Admin' : 'Staff'}</th>`).join('')}
+      </tr></thead>
+      <tbody>
+        ${groups.map(g => `
+          <tr class="perm-group"><td colspan="${editableRoles.length + 1}">${g}</td></tr>
+          ${catalogue.filter(p => p.group === g).map(p => `
+            <tr>
+              <td>${p.label}<div class="perm-key">${p.key}</div></td>
+              ${editableRoles.map(r => `
+                <td class="perm-col">
+                  <input type="checkbox" class="perm-box" data-role="${r}" data-key="${p.key}"
+                         ${roles[r] && roles[r][p.key] ? 'checked' : ''}>
+                </td>`).join('')}
+            </tr>`).join('')}
+        `).join('')}
+      </tbody>
+    </table>
+    <div style="margin-top:14px;display:flex;align-items:center;gap:12px;">
+      <button class="btn btn-primary" id="btn-save-perms">Save permissions</button>
+      <span id="perm-status" class="text-muted" style="font-size:12.5px;"></span>
+    </div>`;
+
+  document.getElementById('btn-save-perms').addEventListener('click', savePermissions);
+}
+
+async function savePermissions() {
+  const btn = document.getElementById('btn-save-perms');
+  const statusEl = document.getElementById('perm-status');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    for (const role of permCatalogue.editableRoles) {
+      const granted = [...document.querySelectorAll(`.perm-box[data-role="${role}"]`)]
+        .filter(b => b.checked).map(b => b.dataset.key);
+      const res = await fetch(`/api/auth/permissions/${role}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin', body: JSON.stringify({ permissions: granted })
+      });
+      if (!res.ok) throw new Error((await res.json()).error || `could not save ${role}`);
+    }
+    statusEl.style.color = '#3fb950';
+    statusEl.textContent = 'Permissions saved — applies to every account with these roles.';
+  } catch (e) {
+    statusEl.style.color = 'var(--red)';
+    statusEl.textContent = e.message;
+  } finally {
+    btn.disabled = false; btn.textContent = 'Save permissions';
+  }
+}
+
+async function loadAdminLabCoverage() {
+  const host = document.getElementById('admin-labs-list');
+  if (!host) return;
+  try {
+    const [users, labs] = await Promise.all([
+      (await fetch('/api/auth/users', { credentials: 'same-origin' })).json(),
+      (await fetch('/api/labs', { credentials: 'same-origin' })).json()
+    ]);
+    const admins = users.filter(u => u.role === 'admin');
+    if (!admins.length) { host.innerHTML = '<span class="text-muted">No admin accounts yet.</span>'; return; }
+
+    const coverage = {};
+    await Promise.all(admins.map(async a => {
+      const r = await fetch(`/api/auth/users/${a.id}/labs`, { credentials: 'same-origin' });
+      coverage[a.id] = r.ok ? await r.json() : [];
+    }));
+
+    host.innerHTML = admins.map(a => `
+      <div class="admin-lab-row" data-admin="${a.id}">
+        <div class="alr-who"><b>${a.name}</b><span class="text-muted">${a.email}</span></div>
+        <div class="alr-labs">
+          ${labs.map(l => `
+            <label class="alr-lab">
+              <input type="checkbox" data-admin="${a.id}" data-lab="${l.id}"
+                     ${coverage[a.id].includes(l.id) ? 'checked' : ''}>
+              <span>${l.name}</span>
+            </label>`).join('')}
+        </div>
+        <div class="alr-actions">
+          <button class="btn btn-secondary btn-save-labs" data-admin="${a.id}" style="font-size:11.5px;padding:5px 11px;">Save</button>
+          <span class="alr-status text-muted" style="font-size:11.5px;"></span>
+        </div>
+      </div>`).join('');
+
+    host.querySelectorAll('.btn-save-labs').forEach(b =>
+      b.addEventListener('click', () => saveAdminLabs(b.dataset.admin)));
+  } catch (e) {
+    host.innerHTML = `<span class="text-muted" style="color:var(--red);">${e.message}</span>`;
+  }
+}
+
+async function saveAdminLabs(adminId) {
+  const row = document.querySelector(`.admin-lab-row[data-admin="${adminId}"]`);
+  const statusEl = row.querySelector('.alr-status');
+  const labIds = [...row.querySelectorAll('input[type=checkbox]')].filter(c => c.checked)
+    .map(c => Number(c.dataset.lab));
+  if (!labIds.length) {
+    statusEl.style.color = 'var(--red)';
+    statusEl.textContent = 'An admin must cover at least one lab.';
+    return;
+  }
+  try {
+    const res = await fetch(`/api/auth/users/${adminId}/labs`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin', body: JSON.stringify({ lab_ids: labIds })
+    });
+    if (!res.ok) throw new Error((await res.json()).error || 'could not save');
+    statusEl.style.color = '#3fb950';
+    statusEl.textContent = `Covering ${labIds.length} lab${labIds.length > 1 ? 's' : ''}.`;
+  } catch (e) {
+    statusEl.style.color = 'var(--red)';
+    statusEl.textContent = e.message;
+  }
+}
+
 /* ── My Profile ────────────────────────────────────────────────────────────
    PATCH /api/auth/profile already accepted these fields for any signed-in
    user; the admin console just had no way to reach it, so an admin could
@@ -72,7 +217,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     if (tab === 'users' && !allUsers.length) loadAllUsers();
     if (tab === 'exams' && !allExams.length) loadAllExams();
     if (tab === 'accounts') loadClinicAccounts();
-    if (tab === 'super') loadSuperStats();
+    if (tab === 'super') { loadSuperStats(); loadPermissions(); loadAdminLabCoverage(); }
     if (tab === 'profile') fillProfileForm(currentUser);
   });
 });

@@ -712,3 +712,32 @@ canvas { display: block; }
   .inv-row { flex-wrap: wrap; row-gap: 4px; }
   .inv-state { margin-left: 34px; }
 }
+
+/* ─── Role permission matrix (super admin) ─────────────────────────────────*/
+.perm-table td, .perm-table th { vertical-align: middle; }
+.perm-col { text-align: center; width: 110px; }
+.perm-box { width: 17px; height: 17px; accent-color: var(--accent); cursor: pointer; }
+.perm-key { font-size: 10.5px; color: var(--text-dim); font-family: var(--font-mono); margin-top: 2px; }
+.perm-group td {
+  background: rgba(43,181,166,.09); font-size: 10.5px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .08em; color: var(--accent);
+  padding-top: 9px !important; padding-bottom: 9px !important;
+}
+
+/* ─── Admin lab coverage ───────────────────────────────────────────────────*/
+.admin-lab-row {
+  display: grid; grid-template-columns: minmax(180px, 1fr) 2fr auto; gap: 14px;
+  align-items: center; padding: 11px 12px; margin-bottom: 8px;
+  background: rgba(8,29,48,.32); border: 1px solid var(--border); border-radius: var(--radius-sm);
+}
+.alr-who { display: flex; flex-direction: column; gap: 2px; font-size: 13px; min-width: 0; }
+.alr-who .text-muted { font-size: 11.5px; }
+.alr-labs { display: flex; flex-wrap: wrap; gap: 8px 14px; }
+.alr-lab { display: flex; align-items: center; gap: 6px; font-size: 12.5px; cursor: pointer; }
+.alr-lab input { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; }
+.alr-actions { display: flex; align-items: center; gap: 10px; }
+
+@media (max-width: 700px) {
+  .admin-lab-row { grid-template-columns: 1fr; }
+  .perm-col { width: 76px; }
+}

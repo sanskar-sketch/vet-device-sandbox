@@ -6,7 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <title>Vitarus · Admin Console</title>
-<link rel="stylesheet" href="../css/shared.css?v=12">
+<link rel="stylesheet" href="../css/shared.css?v=13">
 <link rel="stylesheet" href="../css/redesign.css?v=5">
 <style>
   .wizard-body { max-width: clamp(1200px, 96vw, 2000px); margin: 0 auto; padding: 28px 24px 60px; }
@@ -305,6 +305,29 @@
       <b>⚠️ Elevated Access:</b> These operations are logged and affect live accounts. Use with caution.
     </div>
 
+    <div class="card" style="margin-bottom:14px;">
+      <div class="card-header">Role Permissions</div>
+      <div class="card-body">
+        <p class="text-muted" style="font-size:12px;margin-bottom:12px;">
+          What the <b>Admin</b> and <b>Staff</b> roles are allowed to do. Changes apply to every account
+          with that role, immediately. Super Admin is not listed — it always holds every permission, so a
+          bad save here can never lock you out of this page.
+        </p>
+        <div id="perm-matrix"><span class="text-muted">Loading permissions…</span></div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:14px;">
+      <div class="card-header">Admin Lab Coverage</div>
+      <div class="card-body">
+        <p class="text-muted" style="font-size:12px;margin-bottom:12px;">
+          Which labs each admin manages. An admin covering several labs sees all of their accounts,
+          appointments, machines and schedules. Staff and vets always belong to exactly one lab.
+        </p>
+        <div id="admin-labs-list"><span class="text-muted">Loading admins…</span></div>
+      </div>
+    </div>
+
     <div class="card">
       <div class="card-header">Change User Role</div>
       <div class="card-body">
@@ -408,6 +431,6 @@
 </div>
 
 <script src="../js/auth-guard.js?v=2"></script>
-<script src="../js/admin-portal.js?v=8"></script>
+<script src="../js/admin-portal.js?v=9"></script>
 </body>
 </html>

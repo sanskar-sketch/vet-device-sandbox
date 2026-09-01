@@ -209,6 +209,31 @@ async function createSchema() {
       created_at         TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_slot_blocks_lab_date ON slot_blocks(lab_id, block_date);
+
+    -- ── Editable permissions ─────────────────────────────────────────────
+    -- Only 'admin' and 'staff' appear here. super_admin is deliberately
+    -- absent and always allowed: making its own permissions editable means a
+    -- single bad save can remove the ability to undo that save. owner and vet
+    -- keep fixed capability sets for the same reason a clinic shouldn't be
+    -- able to grant an owner access to another owner's records.
+    CREATE TABLE IF NOT EXISTS role_permissions (
+      role       TEXT NOT NULL CHECK(role IN ('admin','staff')),
+      permission TEXT NOT NULL,
+      allowed    BOOLEAN NOT NULL DEFAULT true,
+      PRIMARY KEY (role, permission)
+    );
+
+    -- ── Admins spanning several labs ─────────────────────────────────────
+    -- users.lab_id stays the primary/home lab so every existing query and
+    -- the account-creation flow keep working; this table is the full set an
+    -- admin may act on. For every other role the set is just their lab_id,
+    -- which keeps one code path (labsFor) rather than branching per role.
+    CREATE TABLE IF NOT EXISTS user_labs (
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      lab_id  INTEGER NOT NULL REFERENCES labs(id),
+      PRIMARY KEY (user_id, lab_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_user_labs_user ON user_labs(user_id);
   `);
 
   // ── Additive columns — safe to re-run against an existing database ───────
@@ -352,12 +377,29 @@ async function seedLabHours() {
   }
 }
 
+/**
+ * Existing admins predate multi-lab, so their home lab_id becomes their
+ * first user_labs row. Without this an admin's lab set would come back empty
+ * on the first boot after upgrade and they'd lose access to their own lab.
+ */
+async function backfillAdminLabs() {
+  const admins = await db.prepare("SELECT id, lab_id FROM users WHERE role = 'admin' AND lab_id IS NOT NULL").all();
+  for (const a of admins) {
+    await pool.query(
+      'INSERT INTO user_labs (user_id, lab_id) VALUES ($1, $2) ON CONFLICT (user_id, lab_id) DO NOTHING',
+      [a.id, a.lab_id]
+    );
+  }
+}
+
 db.ready = (async () => {
   await createSchema();
   const defaultLab = await ensureDefaultLab();
   await seedDemoMachines(defaultLab);
   await seedDemoAccounts(defaultLab);
   await seedLabHours();
+  await require('./lib/permissions').seedDefaults(db, pool);
+  await backfillAdminLabs();
 })();
 
 module.exports = db;
