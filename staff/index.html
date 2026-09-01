@@ -34,6 +34,20 @@
     <div class="clinical-metric"><span class="pulse"></span> MULTI_MODAL LINK · READY</div>
   </section>
 
+  <!-- Running an exam and running the clinic are different jobs. The wizard
+       stays a linear four-step flow; requests, availability and records get
+       their own tabs instead of stacking underneath step one, where they
+       pushed the intake form off the screen. -->
+  <div class="tab-bar" id="staff-tab-bar" role="tablist" aria-label="Clinic dashboard sections">
+    <button class="tab-btn active" role="tab" aria-selected="true" aria-controls="stab-exam" data-stab="exam">New Exam</button>
+    <button class="tab-btn" role="tab" aria-selected="false" aria-controls="stab-appointments" data-stab="appointments">
+      Appointments<span class="tab-badge" id="appt-req-badge" style="display:none;"></span>
+    </button>
+    <button class="tab-btn" role="tab" aria-selected="false" aria-controls="stab-availability" data-stab="availability">Availability</button>
+    <button class="tab-btn" role="tab" aria-selected="false" aria-controls="stab-records" data-stab="records">Records</button>
+  </div>
+
+  <section id="stab-exam" role="tabpanel">
   <!-- ── STEP 1 · Patient Intake ─────────────────────────────────────────── -->
   <div class="step-panel active" id="panel-intake">
     <div class="panel-title">Patient Station</div>
@@ -139,58 +153,6 @@
       <button class="btn btn-primary" id="btn-to-detect">Continue → Hardware Detection</button>
     </div>
 
-    <div class="card" style="margin-top:24px;">
-      <div class="card-header">Appointment Requests <span id="appt-req-badge" style="display:none;background:var(--orange);color:#1a1204;font-size:11px;font-weight:700;border-radius:10px;padding:1px 8px;margin-left:6px;vertical-align:middle;"></span></div>
-      <div class="card-body" id="appt-requests-list">
-        <span class="text-muted">Loading…</span>
-      </div>
-    </div>
-
-    <div class="card" style="margin-top:14px;">
-      <div class="card-header">Clinic Availability</div>
-      <div class="card-body">
-        <p class="text-muted" style="font-size:12px;margin-bottom:12px;">
-          What owners can book on a given day. Mark time unavailable for an offline booking,
-          an emergency, or an early close — blocked time disappears from their slot list straight away.
-        </p>
-        <div class="form-group" style="max-width:220px;">
-          <label>Date</label>
-          <input type="date" id="avail-date">
-        </div>
-        <div id="avail-grid" style="margin-bottom:16px;"><span class="text-muted" style="font-size:12.5px;">Pick a date.</span></div>
-
-        <div class="block-form">
-          <div class="form-group"><label>Block from</label><input type="time" id="block-from"></div>
-          <div class="form-group"><label>Until</label><input type="time" id="block-to"></div>
-          <div class="form-group block-reason"><label>Reason (optional)</label>
-            <input type="text" id="block-reason" placeholder="e.g. Emergency surgery, walk-in clinic">
-          </div>
-        </div>
-        <div class="text-muted" id="block-status" style="min-height:16px;margin-top:8px;"></div>
-        <button class="btn btn-secondary" id="btn-add-block" style="margin-top:4px;">Mark unavailable</button>
-
-        <div id="blocks-list" style="margin-top:16px;"></div>
-      </div>
-    </div>
-
-    <div class="card" style="margin-top:14px;">
-      <div class="card-header">My Submitted Exams</div>
-      <div class="card-body" id="my-exams-list">
-        <span class="text-muted">Loading…</span>
-      </div>
-    </div>
-
-    <div class="card" style="margin-top:14px;">
-      <div class="card-header">Patient Records</div>
-      <div class="card-body">
-        <p class="text-muted" style="font-size:12px;margin-bottom:8px;">Look up any patient to see the owner's contact details and their full report history.</p>
-        <div style="display:flex;gap:8px;">
-          <input type="text" id="patient-search-input" placeholder="Search by patient name, owner email, or microchip…" style="flex:1;">
-          <button class="btn btn-secondary" id="btn-patient-search">Search</button>
-        </div>
-        <div id="patient-search-results" style="margin-top:12px;"></div>
-      </div>
-    </div>
   </div>
 
   <!-- ── STEP 2 · Hardware Detection ─────────────────────────────────────── -->
@@ -311,6 +273,75 @@
       <button class="btn btn-primary" id="btn-submit-review">Submit for Vet Review</button>
     </div>
   </div>
+
+  </section>
+
+  <section id="stab-appointments" role="tabpanel" hidden>
+    <div class="panel-title">Appointment Requests</div>
+    <div class="panel-sub">Owner requests for this clinic — accept, suggest another time, or decline.</div>
+    <div class="card" style="margin-top:24px;">
+      <div class="card-header">Appointment Requests</div>
+      <div class="card-body" id="appt-requests-list">
+        <span class="text-muted">Loading…</span>
+      </div>
+    </div>
+
+  </section>
+
+  <section id="stab-availability" role="tabpanel" hidden>
+    <div class="panel-title">Clinic Availability</div>
+    <div class="panel-sub">What owners can book, and time you have marked unavailable.</div>
+    <div class="card" style="margin-top:14px;">
+      <div class="card-header">Clinic Availability</div>
+      <div class="card-body">
+        <p class="text-muted" style="font-size:12px;margin-bottom:12px;">
+          What owners can book on a given day. Mark time unavailable for an offline booking,
+          an emergency, or an early close — blocked time disappears from their slot list straight away.
+        </p>
+        <div class="form-group" style="max-width:220px;">
+          <label>Date</label>
+          <input type="date" id="avail-date">
+        </div>
+        <div id="avail-grid" style="margin-bottom:16px;"><span class="text-muted" style="font-size:12.5px;">Pick a date.</span></div>
+
+        <div class="block-form">
+          <div class="form-group"><label>Block from</label><input type="time" id="block-from"></div>
+          <div class="form-group"><label>Until</label><input type="time" id="block-to"></div>
+          <div class="form-group block-reason"><label>Reason (optional)</label>
+            <input type="text" id="block-reason" placeholder="e.g. Emergency surgery, walk-in clinic">
+          </div>
+        </div>
+        <div class="text-muted" id="block-status" style="min-height:16px;margin-top:8px;"></div>
+        <button class="btn btn-secondary" id="btn-add-block" style="margin-top:4px;">Mark unavailable</button>
+
+        <div id="blocks-list" style="margin-top:16px;"></div>
+      </div>
+    </div>
+
+  </section>
+
+  <section id="stab-records" role="tabpanel" hidden>
+    <div class="panel-title">Records</div>
+    <div class="panel-sub">Exams you have submitted, and the full history for any patient.</div>
+    <div class="card" style="margin-top:14px;">
+      <div class="card-header">My Submitted Exams</div>
+      <div class="card-body" id="my-exams-list">
+        <span class="text-muted">Loading…</span>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:14px;">
+      <div class="card-header">Patient Records</div>
+      <div class="card-body">
+        <p class="text-muted" style="font-size:12px;margin-bottom:8px;">Look up any patient to see the owner's contact details and their full report history.</p>
+        <div style="display:flex;gap:8px;">
+          <input type="text" id="patient-search-input" placeholder="Search by patient name, owner email, or microchip…" style="flex:1;">
+          <button class="btn btn-secondary" id="btn-patient-search">Search</button>
+        </div>
+        <div id="patient-search-results" style="margin-top:12px;"></div>
+      </div>
+    </div>
+  </section>
 
 </div>
 
@@ -465,6 +496,48 @@ function staffPetThumbHTML(pet, size = 40) {
 }
 
 /* ── Stepper ─────────────────────────────────────────────────────────────── */
+/* ── Dashboard tabs ────────────────────────────────────────────────────────
+   The four-step wizard is one tab, not the whole page. The stepper belongs
+   to that tab only — showing "Patient / Detect / Exam / Review" while
+   someone is looking at the availability grid implies a flow they are not
+   in. */
+const STAFF_TABS = ['exam', 'appointments', 'availability', 'records'];
+
+function showStaffTab(name) {
+  if (!STAFF_TABS.includes(name)) return;
+  STAFF_TABS.forEach(t => {
+    const panel = document.getElementById(`stab-${t}`);
+    if (panel) panel.hidden = t !== name;
+    const btn = document.querySelector(`#staff-tab-bar [data-stab="${t}"]`);
+    if (btn) {
+      btn.classList.toggle('active', t === name);
+      btn.setAttribute('aria-selected', String(t === name));
+    }
+  });
+  const stepper = document.getElementById('stepper');
+  if (stepper) stepper.style.visibility = name === 'exam' ? '' : 'hidden';
+  // Availability is the one tab whose content goes stale while unseen — a
+  // request accepted elsewhere changes the grid.
+  if (name === 'availability') loadAvailability();
+  if (name === 'appointments') loadAppointmentRequests();
+}
+
+document.getElementById('staff-tab-bar').addEventListener('click', e => {
+  const btn = e.target.closest('[data-stab]');
+  if (btn) showStaffTab(btn.dataset.stab);
+});
+
+document.getElementById('staff-tab-bar').addEventListener('keydown', e => {
+  if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+  const btns = [...document.querySelectorAll('#staff-tab-bar [data-stab]')];
+  const i = btns.indexOf(document.activeElement);
+  if (i === -1) return;
+  e.preventDefault();
+  const next = btns[(i + (e.key === 'ArrowRight' ? 1 : btns.length - 1)) % btns.length];
+  next.focus();
+  showStaffTab(next.dataset.stab);
+});
+
 function renderStepper() {
   const el = document.getElementById('stepper');
   el.innerHTML = STEPS.map((s, i) => {
@@ -1933,6 +2006,7 @@ document.getElementById('btn-restart').addEventListener('click', () => {
   state.hwResults = [];
   state.moduleResults = {};
   state.pendingMedia = { video: null, audio: null };
+  showStaffTab('exam');
   state.mediaNotes = [];
   state.report = null;
   state.submitted = false;
