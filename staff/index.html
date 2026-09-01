@@ -6,7 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <title>Vitarus · Clinic Dashboard</title>
-<link rel="stylesheet" href="../css/shared.css?v=11">
+<link rel="stylesheet" href="../css/shared.css?v=12">
 <link rel="stylesheet" href="../css/redesign.css?v=5">
 <link rel="stylesheet" href="../css/experience.css?v=5">
 <link rel="stylesheet" href="../css/app.css?v=23">
@@ -171,6 +171,8 @@
         <button class="btn btn-primary" id="btn-to-exam" disabled>Continue</button>
       </div>
     </div>
+
+    <div id="lab-inventory"></div>
 
     <div class="card console-card">
       <div class="console-log" id="scan-console"></div>
@@ -419,8 +421,8 @@
 <script src="../js/drivers/clarius.js?v=3"></script>
 <script src="../js/drivers/vemo-tekscan-vetscan.js?v=4"></script>
 <script src="../js/drivers/patient-station.js?v=3"></script>
-<script src="../js/hardware-registry.js?v=5"></script>
-<script src="../js/hardware-scan.js?v=3"></script>
+<script src="../js/hardware-registry.js?v=6"></script>
+<script src="../js/hardware-scan.js?v=4"></script>
 <script src="../js/breed-directory.js?v=1"></script>
 <script src="../js/vet-knowledge-base.js?v=1"></script>
 <script src="../js/ai-analysis.js?v=8"></script>
@@ -496,6 +498,116 @@ function staffPetThumbHTML(pet, size = 40) {
 }
 
 /* ── Stepper ─────────────────────────────────────────────────────────────── */
+/* ── Clinic instrument inventory ───────────────────────────────────────────
+   Which instruments this clinic actually has, per the machines an admin
+   registered against the lab. Detection probes only these — previously it
+   walked the full hardware registry, so every clinic saw a healthy handshake
+   for all six modules whether or not it owned them.
+
+   Note the exam still needs all six to produce a report: fusion-engine.js
+   scores six body systems from six modalities and has no partial mode. A
+   clinic missing an instrument is told so here rather than discovering it at
+   a permanently disabled Continue button. */
+let labInventory = null;   // { machines, hwKeys:Set, byHwKey } — null until loaded
+
+async function loadLabInventory() {
+  const labId = staffLabId();
+  if (!labId) { labInventory = { machines: [], hwKeys: new Set(), byHwKey: {} }; return labInventory; }
+  try {
+    const res = await fetch(`/api/labs/${labId}/machines`, { credentials: 'same-origin' });
+    const machines = res.ok ? await res.json() : [];
+    const byHwKey = {};
+    machines.forEach(m => {
+      const key = hwKeyForMachineType(m.machine_type);
+      if (key) (byHwKey[key] = byHwKey[key] || []).push(m);
+    });
+    labInventory = { machines, byHwKey, hwKeys: new Set(Object.keys(byHwKey)) };
+  } catch {
+    labInventory = { machines: [], byHwKey: {}, hwKeys: new Set() };
+  }
+  renderLabInventory();
+  return labInventory;
+}
+
+/** Hardware keys this scan should probe: the clinic's own, plus intake. */
+function scannableHwKeys() {
+  const configured = labInventory ? [...labInventory.hwKeys] : [];
+  return [...new Set([...ALWAYS_PRESENT_HW_KEYS, ...configured])];
+}
+
+const MACHINE_STATE_META = {
+  operational: { label: 'Operational', cls: 'inv-ok' },
+  maintenance: { label: 'Maintenance', cls: 'inv-warn' },
+  offline:     { label: 'Offline',     cls: 'inv-off' }
+};
+
+function renderLabInventory() {
+  const host = document.getElementById('lab-inventory');
+  if (!host || !labInventory) return;
+  const scanBtn = document.getElementById('btn-scan');
+
+  if (!labInventory.machines.length) {
+    host.innerHTML = `
+      <div class="inv-empty">
+        <div class="inv-empty-title">No instruments registered for this clinic</div>
+        <p>Detection has nothing to probe. An admin adds machines under
+           <b>Admin Console → Labs → Machines</b>; once they appear there they show up here
+           with their status.</p>
+      </div>`;
+    if (scanBtn) scanBtn.disabled = true;
+    return;
+  }
+  if (scanBtn) scanBtn.disabled = false;
+
+  // Six diagnostic modules, each either configured here or plainly absent.
+  const rows = MODULES.map(mod => {
+    const hwKey = SEMANTIC_TO_HW_KEY[mod.key];
+    const machines = (labInventory.byHwKey[hwKey] || []);
+    if (!machines.length) {
+      return `<div class="inv-row inv-missing">
+                <span class="inv-icon">${mod.icon}</span>
+                <span class="inv-name">${mod.name}</span>
+                <span class="inv-state inv-none">Not configured at this clinic</span>
+              </div>`;
+    }
+    return machines.map(m => {
+      const meta = MACHINE_STATE_META[m.state] || { label: m.state, cls: 'inv-off' };
+      return `<div class="inv-row">
+                <span class="inv-icon">${mod.icon}</span>
+                <span class="inv-name">${staffEscapeHtml(m.name)}<span class="inv-mod">${mod.name}</span></span>
+                <span class="inv-state ${meta.cls}">${meta.label}</span>
+              </div>`;
+    }).join('');
+  }).join('');
+
+  // Machines an admin registered whose type doesn't match any module — shown
+  // rather than dropped, so a typo in machine_type is visible instead of
+  // silently removing an instrument from the clinic's list.
+  const unmatched = labInventory.machines.filter(m => !hwKeyForMachineType(m.machine_type));
+  const unmatchedRows = unmatched.map(m => `
+    <div class="inv-row inv-missing">
+      <span class="inv-icon">🔧</span>
+      <span class="inv-name">${staffEscapeHtml(m.name)}<span class="inv-mod">type “${staffEscapeHtml(m.machine_type || '—')}” — not a known module</span></span>
+      <span class="inv-state inv-none">Not probed</span>
+    </div>`).join('');
+
+  const missingCount = MODULES.filter(mod => !labInventory.hwKeys.has(SEMANTIC_TO_HW_KEY[mod.key])).length;
+  const gap = missingCount ? `
+    <div class="inv-gap">
+      <b>${missingCount} of 6 modules are not configured here.</b>
+      A signed report scores all six body systems, so an exam can only be completed at a clinic
+      with all six instruments registered. Detection below probes only what this clinic has.
+    </div>` : '';
+
+  host.innerHTML = `
+    <div class="card inv-card">
+      <div class="card-header">Clinic Instruments</div>
+      <div class="card-body">
+        ${rows}${unmatchedRows}${gap}
+      </div>
+    </div>`;
+}
+
 /* ── Dashboard tabs ────────────────────────────────────────────────────────
    The four-step wizard is one tab, not the whole page. The stepper belongs
    to that tab only — showing "Patient / Detect / Exam / Review" while
@@ -1399,14 +1511,30 @@ document.getElementById('btn-scan').addEventListener('click', async () => {
         bodyHtml: hasVisual ? sensorCanvasHTML('detect', key) : undefined
       });
       if (hasVisual) detectStops[key] = startSensorAnim('detect', key);
-    }
+    },
+    // Probe only the instruments this clinic actually has registered.
+    { only: scannableHwKeys() }
   );
 
   state.hwResults = results;
-  logger.info(`Scan complete — ${results.filter(r => r.ok).length}/${results.length} modules online.`);
+
+  // Modules the clinic hasn't registered stay explicitly unconfigured rather
+  // than sitting at "pending" forever, which read as a scan still in flight.
+  const probed = new Set(results.map(r => HW_KEY_TO_SEMANTIC[r.key]));
+  MODULES.forEach(mod => {
+    // detectMap is built when intake is completed, so it exists by the time
+    // this panel is reachable; guarded anyway so a future entry point can't
+    // turn a missing map into a thrown scan.
+    if (detectMap && !probed.has(mod.key))
+      detectMap.setState(mod.key, 'fail', { status: 'Not configured at this clinic' });
+  });
+
+  const missing = MODULES.filter(mod => !probed.has(mod.key)).length;
+  logger.info(`Scan complete — ${results.filter(r => r.ok).length}/${results.length} registered modules online.`);
+  if (missing) logger.warn(`${missing} of 6 modules are not registered at this clinic — an exam needs all six.`);
   btn.disabled = false;
   btn.textContent = '🔍 Re-scan Hardware';
-  continueBtn.disabled = results.some(r => !r.ok);
+  continueBtn.disabled = results.some(r => !r.ok) || missing > 0;
 });
 
 document.getElementById('btn-to-exam').addEventListener('click', () => {
@@ -2049,6 +2177,7 @@ AuthGuard.requireRole('staff', 'admin', 'super_admin').then(user => {
   AuthGuard.renderStrip(user, '#auth-strip-mount');
   loadMyExams();
   loadAppointmentRequests();
+  loadLabInventory();
 
   // Availability needs currentUser.lab_id, so it wires up here rather than
   // at parse time.

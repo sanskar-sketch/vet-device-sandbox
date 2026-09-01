@@ -88,3 +88,44 @@ const HARDWARE_REGISTRY = [
 function hwLookup(key) {
   return HARDWARE_REGISTRY.find(h => h.key === key);
 }
+
+/**
+ * Maps the free-text machine_type an admin stores against a lab
+ * (lab_machines.machine_type) onto this registry's hardware keys.
+ *
+ * The two vocabularies grew separately — the admin console describes what a
+ * machine *is* ("force_plate"), the registry names the driver that talks to
+ * it ("tekscan") — so nothing connected a clinic's configured inventory to
+ * the modules the exam actually probes. This is that join.
+ *
+ * Unmapped types are not an error: an admin can type anything, and a machine
+ * we don't recognise is shown as configured-but-unmatched rather than
+ * silently dropped.
+ */
+const MACHINE_TYPE_TO_HW_KEY = {
+  lidar:       'orbbec',
+  depth:       'orbbec',
+  structural:  'orbbec',
+  thermal:     'flir',
+  ultrasound:  'clarius',
+  bioacoustic: 'vemo',
+  cardiac:     'vemo',
+  ecg:         'vemo',
+  force_plate: 'tekscan',
+  gait:        'tekscan',
+  blood_chem:  'vetscan',
+  blood:       'vetscan',
+  haematology: 'vetscan'
+};
+
+function hwKeyForMachineType(type) {
+  return MACHINE_TYPE_TO_HW_KEY[String(type || '').toLowerCase().trim()] || null;
+}
+
+/**
+ * The patient station is intake hardware, not one of the six diagnostic
+ * instruments: step 1 drives it directly and it has no lab_machines
+ * equivalent, so it is always present regardless of what an admin has
+ * configured.
+ */
+const ALWAYS_PRESENT_HW_KEYS = ['patientStation'];

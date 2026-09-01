@@ -152,6 +152,21 @@ function router(db) {
     res.json({ lab_id: updated.id, lab_name: updated.name, slot_minutes: updated.slot_minutes, hours: rows });
   }));
 
+  // ── Read a lab's machines (clinic-side) ──────────────────────────────────
+  // Staff need this to know which instruments their own clinic actually has;
+  // GET /labs/:id returns the same list but is admin-only because it also
+  // carries staff and doctor rosters.
+  r.get('/labs/:id/machines', requireAuth, requireRole('staff', 'vet', 'admin', 'super_admin'), ah(async (req, res) => {
+    const labId = Number(req.params.id);
+    const lab = await db.prepare('SELECT id FROM labs WHERE id = ?').get(labId);
+    if (!lab) return res.status(404).json({ error: 'lab not found' });
+    if (req.user.role !== 'super_admin' && labId !== req.user.lab_id)
+      return res.status(403).json({ error: 'not permitted for this lab' });
+    res.json(await db.prepare(
+      'SELECT id, name, machine_type, state FROM lab_machines WHERE lab_id = ? ORDER BY name'
+    ).all(labId));
+  }));
+
   // ── Add a machine to a lab ────────────────────────────────────────────────
   r.post('/labs/:id/machines', requireAuth, requireRole('admin', 'super_admin'), ah(async (req, res) => {
     const lab = await db.prepare('SELECT * FROM labs WHERE id = ?').get(req.params.id);

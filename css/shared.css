@@ -669,3 +669,46 @@ canvas { display: block; }
 /* An offered slot is spoken for, so it reads like a booking, not a free one. */
 .slot-held { border-style: dashed; }
 .slot-held .slot-tag { color: var(--orange); }
+
+/* ─── Clinic instrument inventory (staff detection) ────────────────────────
+   What this clinic actually owns, per the machines an admin registered.
+   Modules with no registered machine are shown greyed rather than omitted:
+   an absent row reads as an oversight, a labelled one reads as a fact. */
+.inv-card { margin-bottom: 14px; }
+.inv-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 9px 2px; border-bottom: 1px solid var(--border); font-size: 13px;
+}
+.inv-row:last-of-type { border-bottom: none; }
+.inv-icon { flex: 0 0 auto; font-size: 15px; width: 22px; text-align: center; }
+.inv-name { flex: 1 1 auto; min-width: 0; font-weight: 600; color: var(--text); }
+.inv-mod {
+  display: block; font-size: 11.5px; font-weight: 500; color: var(--text-dim);
+  letter-spacing: .01em;
+}
+.inv-state {
+  flex: 0 0 auto; font-size: 10.5px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .06em; padding: 3px 9px; border-radius: 999px; white-space: nowrap;
+}
+.inv-ok   { background: rgba(43,181,166,.14); color: var(--accent);  border: 1px solid rgba(43,181,166,.35); }
+.inv-warn { background: rgba(240,180,92,.14); color: var(--orange);  border: 1px solid rgba(240,180,92,.35); }
+.inv-off  { background: rgba(232,115,122,.12); color: var(--red);    border: 1px solid rgba(232,115,122,.35); }
+.inv-none { background: transparent; color: var(--text-dim); border: 1px dashed var(--border); }
+.inv-row.inv-missing .inv-name { color: var(--text-dim); font-weight: 500; }
+
+.inv-gap {
+  margin-top: 12px; padding: 11px 13px; font-size: 12.5px; line-height: 1.55;
+  background: rgba(240,180,92,.09); border: 1px solid rgba(240,180,92,.3);
+  border-left: 3px solid var(--orange); border-radius: var(--radius-sm);
+}
+.inv-empty {
+  padding: 22px; margin-bottom: 14px; text-align: center;
+  background: var(--surface); border: 1px dashed var(--border); border-radius: var(--radius);
+}
+.inv-empty-title { font-size: 14.5px; font-weight: 700; color: var(--heading); margin-bottom: 6px; }
+.inv-empty p { font-size: 12.5px; color: var(--text-muted); line-height: 1.6; margin: 0 auto; max-width: 460px; }
+
+@media (max-width: 560px) {
+  .inv-row { flex-wrap: wrap; row-gap: 4px; }
+  .inv-state { margin-left: 34px; }
+}

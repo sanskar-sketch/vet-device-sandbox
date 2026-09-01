@@ -8,10 +8,24 @@
  * against sim drivers instead of live sockets.
  */
 
-async function runHardwareScan(logger, onResult, onStart) {
+/**
+ * @param {object} [opts]
+ * @param {string[]} [opts.only]  hardware keys to probe. Defaults to every
+ *   registered module. Callers pass the instruments their clinic actually
+ *   has, so a lab is never shown a healthy handshake for a machine it does
+ *   not own.
+ */
+async function runHardwareScan(logger, onResult, onStart, opts = {}) {
   const results = [];
+  const only = Array.isArray(opts.only) ? new Set(opts.only) : null;
+  const queue = only ? HARDWARE_REGISTRY.filter(hw => only.has(hw.key)) : HARDWARE_REGISTRY;
 
-  for (const hw of HARDWARE_REGISTRY) {
+  if (!queue.length) {
+    logger.warn('No instruments are configured for this clinic — nothing to probe.');
+    return results;
+  }
+
+  for (const hw of queue) {
     if (onStart) onStart(hw);
     logger.info(`Probing <strong>${hw.label}</strong> — ${escapeHtml(hw.endpoint)} (${escapeHtml(hw.protocol)})`);
     await delay(rand(250, 500, 0));
