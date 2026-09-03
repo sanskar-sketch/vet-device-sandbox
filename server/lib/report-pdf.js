@@ -225,6 +225,30 @@ function buildReportPdf(exam, pet, photo) {
       doc.y = boxTop + dqHeight + 20 + 14;
     }
 
+    // ── Partial-exam notice ──────────────────────────────────────────────
+    //    This is the copy that leaves the building — emailed to owners and
+    //    filed by vets — so the scope limit has to travel with it, not stay
+    //    behind on the staff screen where it was generated.
+    const cov = report.coverage;
+    if (cov && !cov.complete) {
+      const boxWidth = 475;
+      const heading = `Partial exam — ${cov.scoreable.length} of 6 body systems assessed`;
+      const detail = `Instruments unavailable: ${cov.missingDetail.map(m => `${m.label} (${m.reasonText})`).join(', ')}. `
+        + `Not assessed: ${cov.unscoreable.map(u => u.label).join(', ')} — not examined this visit, not found normal.`;
+      doc.font('Helvetica-Bold').fontSize(10.5);
+      let boxHeight = doc.heightOfString(heading, { width: boxWidth }) + 4;
+      doc.font('Helvetica').fontSize(9.5);
+      boxHeight += doc.heightOfString(detail, { width: boxWidth });
+      if (doc.y + boxHeight + 34 > 720) doc.addPage();
+      const boxTop = doc.y;
+      doc.save();
+      doc.rect(50, boxTop, 495, boxHeight + 20).fillOpacity(0.12).fill('#3f6f9f');
+      doc.restore();
+      doc.font('Helvetica-Bold').fontSize(10.5).fillColor('#1a3a5c').text(heading, 60, boxTop + 10, { width: boxWidth });
+      doc.font('Helvetica').fontSize(9.5).fillColor('#28486b').text(detail, 60, doc.y + 3, { width: boxWidth });
+      doc.y = boxTop + boxHeight + 20 + 14;
+    }
+
     // ── Priority: the single biggest concern first, not the score ────────
     const ranked = rankedSystems(report);
     const top = ranked[0];

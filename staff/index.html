@@ -6,11 +6,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <title>Vitarus · Clinic Dashboard</title>
-<link rel="stylesheet" href="../css/shared.css?v=13">
+<link rel="stylesheet" href="../css/shared.css?v=14">
 <link rel="stylesheet" href="../css/redesign.css?v=5">
 <link rel="stylesheet" href="../css/experience.css?v=5">
-<link rel="stylesheet" href="../css/app.css?v=23">
-<link rel="stylesheet" href="../css/report.css?v=6">
+<link rel="stylesheet" href="../css/app.css?v=24">
+<link rel="stylesheet" href="../css/report.css?v=7">
 </head>
 <body>
 
@@ -195,6 +195,8 @@
         <button class="btn btn-primary" id="btn-to-report" disabled>Continue → Review</button>
       </div>
     </div>
+
+    <div id="exam-coverage-banner"></div>
 
     <div id="exam-map-container"></div>
 
@@ -448,11 +450,12 @@
 <script src="../js/breed-directory.js?v=1"></script>
 <script src="../js/vet-knowledge-base.js?v=1"></script>
 <script src="../js/ai-analysis.js?v=8"></script>
-<script src="../js/fusion-engine.js?v=7"></script>
+<script src="../js/exam-coverage.js?v=1"></script>
+<script src="../js/fusion-engine.js?v=8"></script>
 <script src="../js/result-renderer.js?v=3"></script>
-<script src="../js/clinical-map.js?v=17"></script>
+<script src="../js/clinical-map.js?v=18"></script>
 <script src="../js/sensor-viz.js?v=4"></script>
-<script src="../js/report-view.js?v=5"></script>
+<script src="../js/report-view.js?v=6"></script>
 
 <script>
 /* ═══════════════════════════════════════════════════════════════════════
@@ -472,6 +475,8 @@ const state = {
   patient: { name: '', species: 'Canine', breed: '', breedKey: '', sex: '', age_years: 5, ownerEmail: '', microchip: null, weight_kg: null, color: '', allergies: '', medicalNotes: '', bcsPhotoId: null, petId: null },
   hwResults: [],
   moduleResults: {},
+  detectCoverage: null,   // what hardware detection found this clinic can score (js/exam-coverage.js)
+  examCoverage: null,     // what the capture run actually produced — the one the report is built from
   pendingMedia: { video: null, audio: null },  // File objects selected on the Exam step, analyzed on Continue → Review
   mediaNotes: [],  // [{kind:'video'|'audio', filename, transcript, analysis}] — see media-analysis.js
   report: null,
@@ -526,10 +531,11 @@ function staffPetThumbHTML(pet, size = 40) {
    walked the full hardware registry, so every clinic saw a healthy handshake
    for all six modules whether or not it owned them.
 
-   Note the exam still needs all six to produce a report: fusion-engine.js
-   scores six body systems from six modalities and has no partial mode. A
-   clinic missing an instrument is told so here rather than discovering it at
-   a permanently disabled Continue button. */
+   A missing instrument no longer blocks the exam: js/exam-coverage.js works
+   out which body systems the remaining instruments can still score, and the
+   exam runs on those. What this card does is make the consequence visible
+   up front — which systems this clinic can assess today, and which it
+   can't — instead of leaving staff to discover it at the report. */
 let labInventory = null;   // { machines, hwKeys:Set, byHwKey } — null until loaded
 
 async function loadLabInventory() {
@@ -553,8 +559,47 @@ async function loadLabInventory() {
 
 /** Hardware keys this scan should probe: the clinic's own, plus intake. */
 function scannableHwKeys() {
-  const configured = labInventory ? [...labInventory.hwKeys] : [];
-  return [...new Set([...ALWAYS_PRESENT_HW_KEYS, ...configured])];
+  const usable = MODULES.filter(m => moduleAvailability()[m.key].available).map(m => SEMANTIC_TO_HW_KEY[m.key]);
+  return [...new Set([...ALWAYS_PRESENT_HW_KEYS, ...usable])];
+}
+
+/**
+ * Which of the six modules this clinic can capture right now, and why not
+ * when it can't.
+ *
+ * A machine sitting in maintenance or offline is registered but unusable —
+ * until now that state was decorative, and the exam probed and captured from
+ * it exactly as if it were operational, which is precisely the case an
+ * offline flag exists to prevent.
+ */
+function moduleAvailability() {
+  const out = {};
+  for (const mod of MODULES) {
+    const machines = (labInventory && labInventory.byHwKey[SEMANTIC_TO_HW_KEY[mod.key]]) || [];
+    const usable = machines.filter(m => m.state === 'operational');
+    if (usable.length) out[mod.key] = { available: true, reason: null, machines: usable };
+    else if (!machines.length) out[mod.key] = { available: false, reason: 'not_configured', machines: [] };
+    else out[mod.key] = {
+      available: false,
+      reason: machines.some(m => m.state === 'maintenance') ? 'maintenance' : 'offline',
+      machines
+    };
+  }
+  return out;
+}
+
+function availableModules() {
+  const av = moduleAvailability();
+  return MODULES.filter(m => av[m.key].available);
+}
+
+/** What this clinic's currently-usable instruments could score, before any capture. */
+function inventoryCoverage() {
+  const av = moduleAvailability();
+  return examCoverage(
+    MODULES.filter(m => av[m.key].available).map(m => m.key),
+    Object.fromEntries(MODULES.filter(m => !av[m.key].available).map(m => [m.key, av[m.key].reason]))
+  );
 }
 
 const MACHINE_STATE_META = {
@@ -581,7 +626,8 @@ function renderLabInventory() {
   }
   if (scanBtn) scanBtn.disabled = false;
 
-  // Six diagnostic modules, each either configured here or plainly absent.
+
+  // Six diagnostic modules, each either usable here or plainly not.
   const rows = MODULES.map(mod => {
     const hwKey = SEMANTIC_TO_HW_KEY[mod.key];
     const machines = (labInventory.byHwKey[hwKey] || []);
@@ -613,13 +659,31 @@ function renderLabInventory() {
       <span class="inv-state inv-none">Not probed</span>
     </div>`).join('');
 
-  const missingCount = MODULES.filter(mod => !labInventory.hwKeys.has(SEMANTIC_TO_HW_KEY[mod.key])).length;
-  const gap = missingCount ? `
-    <div class="inv-gap">
-      <b>${missingCount} of 6 modules are not configured here.</b>
-      A signed report scores all six body systems, so an exam can only be completed at a clinic
-      with all six instruments registered. Detection below probes only what this clinic has.
-    </div>` : '';
+  // The verdict staff actually need: not "how many machines are missing" but
+  // "what can I still assess today, and is that enough to submit".
+  const cov = inventoryCoverage();
+  let gap = '';
+  if (cov.complete) {
+    gap = `<div class="inv-gap inv-gap-ok">
+             <b>All six instruments available.</b> A full exam can be run — all six body systems assessed.
+           </div>`;
+  } else if (cov.sufficient) {
+    gap = `<div class="inv-gap inv-gap-partial">
+             <b>Partial exam available — ${cov.scoreable.length} of 6 body systems.</b>
+             ${cov.unscoreable.map(u => `${u.label} needs ${u.needsLabels.join(' or ')}`).join('; ')}.
+             The exam will run on the instruments you have and the report will state what was not assessed.
+           </div>`;
+  } else {
+    gap = `<div class="inv-gap">
+             <b>Not enough instruments to run an exam.</b>
+             ${cov.scoreable.length} of 6 body systems can be scored; at least ${MIN_SYSTEMS_FOR_REPORT} are needed
+             before a report can be submitted for vet review.
+             ${cov.unlockedBy.length
+               ? `Bringing <b>${cov.unlockedBy[0].label}</b> back online would add
+                  ${cov.unlockedBy[0].systems.length} system${cov.unlockedBy[0].systems.length === 1 ? '' : 's'}.`
+               : ''}
+           </div>`;
+  }
 
   host.innerHTML = `
     <div class="card inv-card">
@@ -1587,23 +1651,55 @@ document.getElementById('btn-scan').addEventListener('click', async () => {
 
   state.hwResults = results;
 
-  // Modules the clinic hasn't registered stay explicitly unconfigured rather
-  // than sitting at "pending" forever, which read as a scan still in flight.
+  // Modules that weren't probed stay explicitly unavailable rather than
+  // sitting at "pending" forever, which read as a scan still in flight. The
+  // dock says *why* — an instrument the clinic doesn't own and one an admin
+  // has taken offline are different problems with different fixes.
   const probed = new Set(results.map(r => HW_KEY_TO_SEMANTIC[r.key]));
+  const availability = moduleAvailability();
   MODULES.forEach(mod => {
     // detectMap is built when intake is completed, so it exists by the time
     // this panel is reachable; guarded anyway so a future entry point can't
     // turn a missing map into a thrown scan.
-    if (detectMap && !probed.has(mod.key))
-      detectMap.setState(mod.key, 'fail', { status: 'Not configured at this clinic' });
+    if (!detectMap || probed.has(mod.key)) return;
+    detectMap.setState(mod.key, 'skipped', {
+      label: 'Unavailable',
+      status: `Not available — ${reasonText(availability[mod.key].reason)}`
+    });
   });
 
-  const missing = MODULES.filter(mod => !probed.has(mod.key)).length;
-  logger.info(`Scan complete — ${results.filter(r => r.ok).length}/${results.length} registered modules online.`);
-  if (missing) logger.warn(`${missing} of 6 modules are not registered at this clinic — an exam needs all six.`);
+  // Coverage is judged on what actually answered the probe, not on what the
+  // admin console says exists: a registered, operational machine that fails
+  // to connect is just as absent from this exam as one that isn't there.
+  const online = new Set(results.filter(r => r.ok).map(r => HW_KEY_TO_SEMANTIC[r.key]));
+  const reasons = {};
+  MODULES.forEach(mod => {
+    if (online.has(mod.key)) return;
+    reasons[mod.key] = probed.has(mod.key) ? 'not_detected' : availability[mod.key].reason;
+  });
+  const cov = examCoverage([...online], reasons);
+  state.detectCoverage = cov;
+
+  logger.info(`Scan complete — ${results.filter(r => r.ok).length}/${results.length} probed modules online.`);
+  if (!cov.complete) {
+    logger.warn(`${cov.missing.length} of 6 modules unavailable: `
+      + cov.missingDetail.map(m => `${m.label} (${m.reasonText})`).join(', '));
+  }
+  if (cov.sufficient) {
+    logger.info(cov.complete
+      ? 'Full exam available — all six body systems can be scored.'
+      : `Partial exam available — ${cov.scoreable.length} of 6 body systems can be scored. `
+        + `Not assessed: ${cov.unscoreable.map(u => u.label).join(', ')}.`);
+  } else {
+    logger.error(`Only ${cov.scoreable.length} of 6 body systems can be scored — at least ${MIN_SYSTEMS_FOR_REPORT} `
+      + 'are needed before a report can be submitted for vet review.');
+  }
+
   btn.disabled = false;
   btn.textContent = '🔍 Re-scan Hardware';
-  continueBtn.disabled = results.some(r => !r.ok) || missing > 0;
+  // The exam may proceed on a partial instrument set; it may not proceed on
+  // one too thin to make a screening report (js/exam-coverage.js, rule 3).
+  continueBtn.disabled = !cov.sufficient;
 });
 
 document.getElementById('btn-to-exam').addEventListener('click', () => {
@@ -1618,6 +1714,7 @@ document.getElementById('btn-to-exam').addEventListener('click', () => {
   // Idle state here shouldn't repeat the Detect step's spec sheet — show what
   // was actually just found on the network instead, so this step reads as a
   // continuation, not a duplicate.
+  const cov = state.detectCoverage || examCoverage([]);
   MODULES.forEach(m => {
     const hw = state.hwResults.find(r => r.key === SEMANTIC_TO_HW_KEY[m.key]);
     const bodyEl = examMap.container.querySelector(`#dock-${m.key}-body`);
@@ -1626,9 +1723,14 @@ document.getElementById('btn-to-exam').addEventListener('click', () => {
       const model = hw.info.model || hw.info.name || hw.info.system || hw.info.station || 'Connected';
       bodyEl.innerHTML = `<div class="spec-block"><div class="spec-row"><span class="spec-label">Ready</span>${model} — connected, awaiting capture</div></div>`;
     } else {
-      bodyEl.innerHTML = `<div class="spec-block"><div class="spec-row"><span class="spec-label">Warning</span>Not confirmed online — re-run detection first</div></div>`;
+      // Not a warning to act on — this instrument is simply out of this
+      // exam, and the report will say so rather than pretending otherwise.
+      const detail = cov.missingDetail.find(d => d.key === m.key);
+      examMap.setState(m.key, 'skipped', { label: 'Skipped', status: '' });
+      bodyEl.innerHTML = `<div class="spec-block"><div class="spec-row"><span class="spec-label">Skipped</span>${detail ? detail.reasonText : 'unavailable'} — this system will be reported as not assessed</div></div>`;
     }
   });
+  renderExamCoverageBanner();
 
   goToStep(2);
 });
@@ -1954,7 +2056,12 @@ document.getElementById('btn-run-exam').addEventListener('click', async () => {
   btn.disabled = true;
   btn.textContent = 'Running…';
 
-  for (const m of MODULES) {
+  // Only instruments that came back online in detection are captured. The
+  // rest were already marked skipped when this step was built.
+  const cov = state.detectCoverage || examCoverage([]);
+  const toRun = MODULES.filter(m => cov.captured.includes(m.key));
+
+  for (const m of toRun) {
     const hasVisual = EXAM_VISUAL_MODULES.includes(m.key);
     examMap.setState(m.key, 'active', {
       status: 'Starting…',
@@ -1993,9 +2100,46 @@ document.getElementById('btn-run-exam').addEventListener('click', async () => {
   }
 
   btn.disabled = false;
-  btn.textContent = '▶ Re-run Full Exam';
-  document.getElementById('btn-to-report').disabled = MODULES.some(m => !state.moduleResults[m.key]);
+  btn.textContent = cov.complete ? '▶ Re-run Full Exam' : '▶ Re-run Available Instruments';
+
+  // Gate on what was actually captured, not on what was meant to be: an
+  // instrument that threw mid-capture drops out of the exam exactly like one
+  // that was never available, instead of stranding a finished exam behind a
+  // permanently disabled Continue button.
+  const captured = MODULES.filter(m => state.moduleResults[m.key]).map(m => m.key);
+  const failed = toRun.filter(m => !state.moduleResults[m.key]).map(m => m.key);
+  const reasons = { ...Object.fromEntries(cov.missingDetail.map(d => [d.key, d.reason])),
+                    ...Object.fromEntries(failed.map(k => [k, 'capture_failed'])) };
+  state.examCoverage = examCoverage(captured, reasons);
+  renderExamCoverageBanner();
+  document.getElementById('btn-to-report').disabled = !state.examCoverage.sufficient;
 });
+
+/* Standing statement of what this exam will and won't cover, shown above the
+   capture map so it is read before the report is generated, not after. */
+function renderExamCoverageBanner() {
+  const host = document.getElementById('exam-coverage-banner');
+  if (!host) return;
+  const cov = state.examCoverage || state.detectCoverage;
+  if (!cov) { host.innerHTML = ''; return; }
+  if (cov.complete) {
+    host.innerHTML = `<div class="cov-banner cov-ok"><b>Full exam.</b> All six instruments available — all six body systems will be assessed.</div>`;
+    return;
+  }
+  const notAssessed = cov.unscoreable.map(u => u.label).join(', ');
+  const missing = cov.missingDetail.map(d => `${d.label} (${d.reasonText})`).join(' · ');
+  host.innerHTML = cov.sufficient
+    ? `<div class="cov-banner cov-partial">
+         <b>Partial exam — ${cov.scoreable.length} of 6 body systems.</b>
+         Unavailable: ${missing}.
+         ${notAssessed ? `The report will record <b>${notAssessed}</b> as not assessed rather than scoring ${cov.unscoreable.length === 1 ? 'it' : 'them'}.` : ''}
+       </div>`
+    : `<div class="cov-banner cov-blocked">
+         <b>Not enough coverage to submit.</b>
+         ${cov.scoreable.length} of 6 body systems can be scored; ${MIN_SYSTEMS_FOR_REPORT} is the minimum for a report a vet can sign.
+         Unavailable: ${missing}.
+       </div>`;
+}
 
 /* ── Video/Audio Notes — optional, not one of the six scored systems ────────
    Step 3 only queues the file (state.pendingMedia) — mirrors how the six
@@ -2074,19 +2218,28 @@ async function loadVetOptions() {
    modality_data + the report skeleton, and stands in if the AI call fails
    so a network problem can't strand a completed exam with no report. */
 async function buildReport() {
-  const analyses = Object.fromEntries(MODULES.map(m => [m.key, state.moduleResults[m.key].analysis]));
-  const localReport = runFusion(state.patient, analyses);
+  // Only the instruments that actually produced a result. A partial exam
+  // scores the systems its evidence supports and records the rest as not
+  // assessed — see js/exam-coverage.js for which is which.
+  const captured = MODULES.filter(m => state.moduleResults[m.key]);
+  const analyses = Object.fromEntries(captured.map(m => [m.key, state.moduleResults[m.key].analysis]));
+  const coverage = state.examCoverage || examCoverage(captured.map(m => m.key));
+  const unavailableReasons = Object.fromEntries(coverage.missingDetail.map(d => [d.key, d.reason]));
+  const localReport = runFusion(state.patient, analyses, { unavailableReasons });
 
   try {
     const res = await fetch('/api/ai-assessment', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
-      body: JSON.stringify({ patient: state.patient, modules: analyses })
+      body: JSON.stringify({ patient: state.patient, modules: analyses, coverage })
     });
     const { assessment } = await res.json();
     if (!assessment) return { report: localReport, aiScored: false };
 
     // Merge rather than replace: keep each system's SCREENED_FOR list and
     // the raw modality_data the report UI renders alongside the scores.
+    // Iterating the LOCAL systems, not the AI's, is what keeps a partial exam
+    // honest: if the model returns a score for a system whose instrument was
+    // never captured, it has no evidence behind it and is dropped here.
     const systems = {};
     for (const [key, local] of Object.entries(localReport.systems)) {
       systems[key] = assessment.systems[key] ? { ...local, ...assessment.systems[key] } : local;
@@ -2096,14 +2249,16 @@ async function buildReport() {
         ...localReport,
         overall_health_score: assessment.overall_health_score,
         systems,
-        key_findings: assessment.key_findings,
+        key_findings: Object.fromEntries(
+          Object.keys(systems).map(k => [k, assessment.key_findings?.[k] || localReport.key_findings[k]])
+        ),
         // Re-derived from the FINAL (AI-adjusted) systems rather than kept
         // as the AI's own free-text list — the AI schema still asks for
         // recommendations (keeps that field meaningful if inspected on its
         // own), but the report always shows fusion-engine.js's structured,
         // system+urgency-tagged version so "what happens next" matches
         // whatever risk levels are actually on screen, AI-scored or not.
-        recommendations: buildRecommendations(systems),
+        recommendations: buildRecommendations(systems, localReport.coverage),
         ai_scored: true
       },
       aiScored: true
@@ -2120,7 +2275,8 @@ document.getElementById('btn-to-report').addEventListener('click', async () => {
   btn.textContent = 'Analysing…';
   const reportEl = document.getElementById('report-content');
   const hasQueuedMedia = !!(state.pendingMedia.video || state.pendingMedia.audio);
-  reportEl.innerHTML = `<span class="text-muted">Running AI analysis across all six instruments${hasQueuedMedia ? ' and your uploaded media' : ''}…</span>`;
+  const capturedCount = MODULES.filter(m => state.moduleResults[m.key]).length;
+  reportEl.innerHTML = `<span class="text-muted">Running AI analysis across ${capturedCount === MODULES.length ? 'all six instruments' : `${capturedCount} of 6 instruments`}${hasQueuedMedia ? ' and your uploaded media' : ''}…</span>`;
   goToStep(3);
 
   try {
@@ -2202,6 +2358,8 @@ document.getElementById('btn-restart').addEventListener('click', () => {
   state.patient = { name: '', species: 'Canine', breed: '', breedKey: '', sex: '', age_years: 5, ownerEmail: '', microchip: null, weight_kg: null, color: '', allergies: '', medicalNotes: '', bcsPhotoId: null, petId: null };
   state.hwResults = [];
   state.moduleResults = {};
+  state.detectCoverage = null;
+  state.examCoverage = null;
   state.pendingMedia = { video: null, audio: null };
   showStaffTab('exam');
   state.mediaNotes = [];
@@ -2225,6 +2383,7 @@ document.getElementById('btn-restart').addEventListener('click', () => {
   document.getElementById('btn-to-report').disabled = true;
   document.getElementById('detect-map-container').innerHTML = '';
   document.getElementById('exam-map-container').innerHTML = '';
+  document.getElementById('exam-coverage-banner').innerHTML = '';
   document.getElementById('scan-console').innerHTML = '';
   ['video', 'audio'].forEach(kind => {
     document.getElementById(`media-${kind}-input`).value = '';

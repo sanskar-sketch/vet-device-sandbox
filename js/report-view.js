@@ -670,6 +670,18 @@ function pdfStatRowsHTML(key, report, simplified) {
   return rows; // same .stat-row markup as the web view — styled by the PDF's own <style> block below
 }
 
+
+function pdfCoverageNoticeHTML(report, simplified) {
+  const cov = report.coverage;
+  if (!cov || cov.complete) return '';
+  const notAssessed = cov.unscoreable.map(u => u.label).join(', ');
+  return `<div class="pdf-coverage-notice">
+    <b>${simplified ? `Partial check-up — ${cov.scoreable.length} of 6 areas examined` : `Partial exam — ${cov.scoreable.length} of 6 body systems assessed`}</b><br>
+    Unavailable: ${cov.missingDetail.map(m => `${m.label} (${m.reasonText})`).join(', ')}.
+    Not assessed: ${notAssessed} — not examined this visit, not found normal.
+  </div>`;
+}
+
 function pdfSystemBlock(key, label, report, simplified) {
   const s = report.systems[key];
   if (!s) return '';
@@ -798,6 +810,7 @@ function buildReportPdfHtml(report, opts) {
   .pdf-brand-sub { font-size: 11px; color: #6b7686; letter-spacing: .5px; text-transform: uppercase; padding-left: 18px; border-left: 1px solid #dbe4ec; }
   .pdf-meta-row { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px 24px; margin-bottom: 20px; font-size: 12.5px; color: #40495a; }
   .pdf-dataqual { background: #fdf2df; border: 1px solid #f0dca0; border-radius: 8px; padding: 12px 16px; margin-bottom: 18px; font-size: 12.5px; color: #6b5000; }
+  .pdf-coverage-notice { background: #eef4fb; border: 1px solid #bcd3ea; border-left: 4px solid #3f6f9f; border-radius: 8px; padding: 12px 16px; margin-bottom: 18px; font-size: 12.5px; color: #1a3a5c; line-height: 1.55; }
   .pdf-dataqual p { margin: 4px 0 0; }
   .pdf-priority { border-radius: 10px; padding: 16px 20px; margin-bottom: 14px; page-break-inside: avoid; }
   .pdf-priority-today, .pdf-urgency-today { background: #fbe8e6; border: 1px solid #f0b8b3; }
@@ -868,6 +881,7 @@ function buildReportPdfHtml(report, opts) {
   </div>
 
   ${signedBlock}
+  ${pdfCoverageNoticeHTML(report, simplified)}
   ${summaryBlock}
   ${aiBlock}
 
@@ -882,7 +896,8 @@ function buildReportPdfHtml(report, opts) {
   ${pdfActionPlanHTML(report)}
 
   <div class="pdf-footer">
-    Vitarus Animal Diagnostics · Multi-Modal Veterinary Diagnostic Platform — this report was generated from six non-sedated
+    Vitarus Animal Diagnostics · Multi-Modal Veterinary Diagnostic Platform — this report was generated from
+    ${report.coverage && !report.coverage.complete ? `${report.coverage.captured.length} of 6` : 'six'} non-sedated
     diagnostic instruments and, where signed above, reviewed and released by a licensed veterinarian.
   </div>
 
@@ -922,11 +937,43 @@ function downloadReportPDF(report, opts) {
    bottom line → the explained score → findings → action plan, so the
    reader gets the answer before the analysis.
    ═══════════════════════════════════════════════════════════════════════ */
+/* ── Partial-exam notice ───────────────────────────────────────────────────
+   A report built from fewer than six instruments covers less than the whole
+   animal, and both the vet signing it and the owner reading it need to know
+   that before they read a single score. Systems with no evidence are absent
+   from report.systems entirely (js/exam-coverage.js) — without this banner
+   their absence would read as "nothing to report" rather than "not looked
+   at", which is the single most dangerous way a partial exam can be
+   misread. Older reports carry no coverage block and render unchanged. */
+function coverageNoticeHTML(report, simple) {
+  const cov = report.coverage;
+  if (!cov || cov.complete) return '';
+  const notAssessed = cov.unscoreable.map(u => u.label);
+  const instruments = cov.missingDetail
+    .map(m => `${m.label} <span class="cov-reason">(${m.reasonText})</span>`).join(', ');
+  const heading = simple
+    ? `This was a partial check-up — ${cov.scoreable.length} of 6 areas were examined`
+    : `Partial exam — ${cov.scoreable.length} of 6 body systems assessed`;
+  const body = simple
+    ? `Some of the clinic's equipment wasn't available, so not everything could be checked this visit.
+       <b>${notAssessed.join(' and ')}</b> ${notAssessed.length === 1 ? 'was' : 'were'} not examined —
+       that isn't a clean result for ${notAssessed.length === 1 ? 'it' : 'them'}, it means ${notAssessed.length === 1 ? 'it' : 'they'} still ${notAssessed.length === 1 ? 'needs' : 'need'} checking.
+       Ask your clinic about booking the remaining test${notAssessed.length === 1 ? '' : 's'}.`
+    : `Instruments unavailable: ${instruments}.
+       <b>Not assessed: ${notAssessed.join(', ')}</b> — absent from this report for want of evidence, not scored as normal.
+       Findings below cover only the ${cov.scoreable.length} system${cov.scoreable.length === 1 ? '' : 's'} that were measured, and the overall score is the average of those alone.`;
+  return `<div class="report-coverage-notice">
+            <div class="rcn-title">${heading}</div>
+            <p>${body}</p>
+          </div>`;
+}
+
 function clinicalReportHTML(report, opts, showRawJson) {
   return reportActionsHTML() +
     reportHeroHTML(report, opts) +
     signedBannerHTML(opts.signedBanner) +
     correctionBannerHTML(opts.correctionBanner) +
+    coverageNoticeHTML(report, false) +
     aiSummaryHTML(opts) +
     reportSystemsHTML(report, opts) +
     mediaNotesHTML(report) +
@@ -940,6 +987,7 @@ function ownerReportHTML(report, opts) {
     dataQualityHTML(report) +
     signedBannerHTML(opts.signedBanner) +
     correctionBannerHTML(opts.correctionBanner) +
+    coverageNoticeHTML(report, true) +
     ownerPriorityHTML(report) +
     bottomLineHTML(report) +
     scoreExplainerHTML(report) +

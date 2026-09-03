@@ -21,6 +21,7 @@
  */
 const express = require('express');
 const { getReferenceRanges, FIELD_EVIDENCE } = require('../../js/vet-knowledge-base.js');
+const { examCoverage, MODULE_LABELS } = require('../../js/exam-coverage.js');
 
 const MODEL = process.env.OPENAI_MODEL || 'gpt-5.6';
 
@@ -65,32 +66,43 @@ const systemSchema = {
   }
 };
 
-const ASSESSMENT_SCHEMA = {
+/**
+ * Built per request rather than once at module load: on a partial exam the
+ * schema must cover only the systems that have evidence behind them.
+ *
+ * `strict: true` means every key in `required` MUST be returned — so leaving
+ * the full six in place on a partial exam would compel the model to invent
+ * scores for systems whose instrument never ran. Narrowing the schema is
+ * what makes "not assessed" reachable at all.
+ */
+function assessmentSchema(systemKeys) {
+  return {
   type: 'object',
   additionalProperties: false,
   required: ['overall_health_score', 'systems', 'key_findings', 'recommendations'],
   properties: {
-    overall_health_score: { type: 'integer', description: '0-100 where 100 is perfect health (inverse of risk).' },
+    overall_health_score: { type: 'integer', description: '0-100 where 100 is perfect health (inverse of risk). Judge only the systems below — do not account for systems that were not measured.' },
     systems: {
       type: 'object', additionalProperties: false,
-      required: SYSTEM_KEYS,
-      properties: Object.fromEntries(SYSTEM_KEYS.map(k => [k, systemSchema]))
+      required: systemKeys,
+      properties: Object.fromEntries(systemKeys.map(k => [k, systemSchema]))
     },
     // Keyed by system, not a flat list — js/report-view.js renders each
     // system card's headline via report.key_findings[systemKey], so an
     // array here would leave every one of those lines blank.
     key_findings: {
-      type: 'object', additionalProperties: false, required: SYSTEM_KEYS,
-      properties: Object.fromEntries(SYSTEM_KEYS.map(k => [k, {
+      type: 'object', additionalProperties: false, required: systemKeys,
+      properties: Object.fromEntries(systemKeys.map(k => [k, {
         type: 'string',
         description: `One-line headline finding for ${k} — the single most important thing about this system, with its measured value. If nothing abnormal, say what was checked and found normal.`
       }]))
     },
     recommendations: { type: 'array', items: { type: 'string' }, description: 'Concrete recommended next steps.' }
   }
-};
+  };
+}
 
-function buildPrompt(patient, modules, ranges) {
+function buildPrompt(patient, modules, ranges, cov) {
   return `Assess this veterinary patient from the raw instrument data below.
 
 PATIENT
@@ -110,10 +122,14 @@ Weight a deviation less heavily when the threshold it breached is only grade C o
 RAW INSTRUMENT DATA
 ${JSON.stringify(modules, null, 2)}
 
-BODY SYSTEMS TO SCORE
-${SYSTEM_KEYS.map(k => `- ${k}: ${SYSTEM_REMIT[k]}`).join('\n')}
+${cov.complete ? '' : `INSTRUMENTS NOT AVAILABLE FOR THIS EXAM
+${cov.missingDetail.map(m => `- ${m.label}: ${m.reasonText}`).join('\n')}
+This is a PARTIAL exam. Do not infer, estimate or reassure about anything those instruments would have measured — say nothing about ${cov.unscoreable.map(u => u.label.toLowerCase()).join(', ')}. Silence is the correct output for an unmeasured system, not a cautious guess.
+`}
+BODY SYSTEMS TO SCORE${cov.complete ? '' : ' (only these — the rest were not measured)'}
+${cov.scoreable.map(k => `- ${k}: ${SYSTEM_REMIT[k]}`).join('\n')}
 
-Score every system, drawing on whichever instruments genuinely bear on it (one instrument can inform several systems — e.g. thermal asymmetry informs both skin and musculoskeletal). Base every number on the actual values above; quote real measurements in your notes and reasoning. If a system has no relevant abnormal signal, score it low and say what was checked. This is decision support for a supervising veterinarian, never a definitive diagnosis.`;
+Score every system listed, drawing on whichever instruments genuinely bear on it (one instrument can inform several systems — e.g. thermal asymmetry informs both skin and musculoskeletal). Base every number on the actual values above; quote real measurements in your notes and reasoning. If a system has no relevant abnormal signal, score it low and say what was checked. Where a system is scored from fewer instruments than usual, say which one is missing in your reasoning and keep confidence correspondingly lower. This is decision support for a supervising veterinarian, never a definitive diagnosis.`;
 }
 
 function router() {
@@ -126,6 +142,12 @@ function router() {
     const { patient, modules } = req.body || {};
     if (!patient || !modules) return res.status(400).json({ assessment: null, reason: 'bad_request' });
 
+    // Recomputed here rather than trusted from the client: the schema the
+    // model is held to is derived from it, so it has to reflect the data
+    // actually posted, not what the caller claims it sent.
+    const cov = examCoverage(Object.keys(modules).filter(k => modules[k]));
+    if (!cov.scoreable.length) return res.json({ assessment: null, reason: 'no_scoreable_systems' });
+
     try {
       const OpenAI = require('openai');
       const client = new OpenAI({ apiKey });
@@ -134,13 +156,13 @@ function router() {
       const response = await client.responses.create({
         model: MODEL,
         instructions: 'You are a veterinary diagnostic AI producing structured multi-system risk assessments from raw instrument data. Decision support only — never state a definitive diagnosis.',
-        input: [{ role: 'user', content: buildPrompt(patient, modules, ranges) }],
+        input: [{ role: 'user', content: buildPrompt(patient, modules, ranges, cov) }],
         text: {
           format: {
             type: 'json_schema',
             name: 'clinical_assessment',
             strict: true,
-            schema: ASSESSMENT_SCHEMA
+            schema: assessmentSchema(cov.scoreable)
           }
         }
       });

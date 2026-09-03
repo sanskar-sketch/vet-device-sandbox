@@ -137,6 +137,15 @@ async function createSchema() {
       created_at    TEXT NOT NULL
     );
 
+    -- One-time data fixes (as opposed to the additive schema changes above,
+    -- which are safe to re-run every boot). Without a marker, a fix that
+    -- corrects seeded data would re-apply on every restart and overwrite
+    -- whatever an admin has since changed.
+    CREATE TABLE IF NOT EXISTS applied_migrations (
+      key        TEXT PRIMARY KEY,
+      applied_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS lab_machines (
       id            SERIAL PRIMARY KEY,
       lab_id        INTEGER NOT NULL REFERENCES labs(id),
@@ -311,19 +320,68 @@ async function ensureDefaultLab() {
   return lab;
 }
 
+/**
+ * The full six-instrument set the exam wizard scores from — one machine per
+ * diagnostic module, matching js/hardware-registry.js's MACHINE_TYPE_TO_HW_KEY
+ * so each one resolves to a module the staff panel can actually probe.
+ */
+const DEFAULT_LAB_INSTRUMENTS = [
+  { name: 'Orbbec Femto Mega Depth Scanner', machine_type: 'lidar' },
+  { name: 'FLIR T865 Thermal Camera',        machine_type: 'thermal' },
+  { name: 'Clarius C7 Vet HD3 Ultrasound',   machine_type: 'ultrasound' },
+  { name: 'VEMO 6-Lead ECG + Stethoscope',   machine_type: 'bioacoustic' },
+  { name: 'Tekscan Animal Strideway',        machine_type: 'force_plate' },
+  { name: 'Vetscan VS2 Blood Analyzer',      machine_type: 'blood_chem' }
+];
+
 async function seedDemoMachines(defaultLab) {
   const existing = await db.prepare('SELECT COUNT(*) AS n FROM lab_machines WHERE lab_id = ?').get(defaultLab.id);
   if (Number(existing.n) > 0) return;
-  const machines = [
-    { name: 'Orbbec LiDAR Scanner',        machine_type: 'lidar',       state: 'operational' },
-    { name: 'Clarius Handheld Ultrasound', machine_type: 'ultrasound',  state: 'operational' },
-    { name: 'VEMO Auscultation Device',    machine_type: 'bioacoustic', state: 'maintenance' },
-    { name: 'Tekscan Force Plate',         machine_type: 'force_plate', state: 'operational' },
-  ];
-  for (const m of machines) {
+  for (const m of DEFAULT_LAB_INSTRUMENTS) {
     await db.prepare('INSERT INTO lab_machines (lab_id, name, machine_type, state, created_at) VALUES (?, ?, ?, ?, ?)')
-      .run(defaultLab.id, m.name, m.machine_type, m.state, nowISO());
+      .run(defaultLab.id, m.name, m.machine_type, 'operational', nowISO());
   }
+}
+
+/** Runs `fn` once ever, per `key`, across every boot of every instance. */
+async function runOnce(key, fn) {
+  const done = await db.prepare('SELECT key FROM applied_migrations WHERE key = ?').get(key);
+  if (done) return false;
+  await fn();
+  await pool.query(
+    'INSERT INTO applied_migrations (key, applied_at) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING',
+    [key, nowISO()]
+  );
+  return true;
+}
+
+/**
+ * The main lab was seeded with four of the six instruments and one of those
+ * deliberately parked in maintenance — a demo flourish that, once the exam
+ * wizard started honouring registered inventory, left the flagship clinic
+ * unable to run a full exam. This tops it up to a complete, operational set.
+ *
+ * Wrapped in runOnce() rather than made idempotent-by-recomputation: an
+ * admin taking an instrument offline or removing one is a real decision, and
+ * a backfill that "corrects" it on the next restart would silently overrule
+ * them. This corrects the seed exactly once and never touches the lab again.
+ */
+async function completeDefaultLabInstruments(defaultLab) {
+  await runOnce('default-lab-full-instrument-set', async () => {
+    const rows = await db.prepare('SELECT id, machine_type, state FROM lab_machines WHERE lab_id = ?').all(defaultLab.id);
+    const present = new Set(rows.map(r => String(r.machine_type || '').toLowerCase()));
+
+    for (const m of DEFAULT_LAB_INSTRUMENTS) {
+      if (present.has(m.machine_type)) continue;
+      await db.prepare('INSERT INTO lab_machines (lab_id, name, machine_type, state, created_at) VALUES (?, ?, ?, ?, ?)')
+        .run(defaultLab.id, m.name, m.machine_type, 'operational', nowISO());
+    }
+    // Revive anything the seed itself parked — not an admin's choice, ours.
+    await pool.query(
+      "UPDATE lab_machines SET state = 'operational' WHERE lab_id = $1 AND state <> 'operational'",
+      [defaultLab.id]
+    );
+  });
 }
 
 // ── Demo accounts ──────────────────────────────────────────────────────────
@@ -396,6 +454,7 @@ db.ready = (async () => {
   await createSchema();
   const defaultLab = await ensureDefaultLab();
   await seedDemoMachines(defaultLab);
+  await completeDefaultLabInstruments(defaultLab);
   await seedDemoAccounts(defaultLab);
   await seedLabHours();
   await require('./lib/permissions').seedDefaults(db, pool);

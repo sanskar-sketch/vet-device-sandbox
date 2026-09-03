@@ -701,6 +701,29 @@ canvas { display: block; }
   background: rgba(240,180,92,.09); border: 1px solid rgba(240,180,92,.3);
   border-left: 3px solid var(--orange); border-radius: var(--radius-sm);
 }
+/* Coverage verdicts. Three distinct readings, three distinct colours: an
+   exam that runs in full, one that runs with documented gaps, and one that
+   can't be submitted at all. Amber-for-everything made "partial but fine"
+   look like a problem to fix before starting. */
+.inv-gap-ok {
+  background: rgba(43,181,166,.10); border-color: rgba(43,181,166,.3);
+  border-left-color: var(--accent);
+}
+.inv-gap-partial {
+  background: rgba(111,171,226,.10); border-color: rgba(111,171,226,.32);
+  border-left-color: var(--mod-gait);
+}
+
+.cov-banner {
+  margin: 0 0 16px; padding: 12px 14px; font-size: 12.8px; line-height: 1.6;
+  border: 1px solid var(--border); border-left-width: 3px; border-radius: var(--radius-sm);
+  color: var(--text-muted);
+}
+.cov-banner b { color: var(--heading); }
+.cov-ok      { background: rgba(43,181,166,.10);  border-color: rgba(43,181,166,.3);  border-left-color: var(--accent); }
+.cov-partial { background: rgba(111,171,226,.10); border-color: rgba(111,171,226,.32); border-left-color: var(--mod-gait); }
+.cov-blocked { background: rgba(232,115,122,.10); border-color: rgba(232,115,122,.32); border-left-color: var(--red); }
+
 .inv-empty {
   padding: 22px; margin-bottom: 14px; text-align: center;
   background: var(--surface); border: 1px dashed var(--border); border-radius: var(--radius);

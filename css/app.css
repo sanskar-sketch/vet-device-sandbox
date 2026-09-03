@@ -427,6 +427,11 @@ body {
 .dock-card.done { border-color: var(--accent); }
 .dock-card.done:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0,0,0,.3); }
 .dock-card.fail { border-color: var(--red); }
+/* Skipped: an instrument that isn't in this exam. Muted and set back rather
+   than flagged red — there is nothing here for staff to fix. */
+.dock-card.skipped { border-style: dashed; opacity: .62; }
+.dock-pill.skipped { background: var(--surface-2); color: var(--text-dim); }
+.anchor-dot.skipped { border-color: var(--border); background: transparent; opacity: .5; }
 
 .dock-head { display: flex; align-items: center; gap: clamp(4px, 0.6vh, 6px); margin-bottom: clamp(2px, 0.4vh, 4px); }
 .dock-icon { font-size: clamp(11px, 1.4vh, 14px); }

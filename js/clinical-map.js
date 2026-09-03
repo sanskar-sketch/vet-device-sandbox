@@ -236,8 +236,14 @@ class ClinicalMap {
   recomputeConnectors() {}
 
   /**
+   * `skipped` is distinct from `fail` on purpose: an instrument the clinic
+   * doesn't have, or that an admin has taken offline, is not an error to
+   * chase — it's a documented gap in this exam's coverage. Showing it in red
+   * alongside genuine connection failures sent staff hunting for a fault
+   * that didn't exist.
+   *
    * @param {string} key
-   * @param {'idle'|'active'|'done'|'fail'} state
+   * @param {'idle'|'active'|'done'|'fail'|'skipped'} state
    * @param {{label?:string, status?:string, bodyHtml?:string}} opts
    */
   setState(key, state, opts = {}) {
@@ -248,13 +254,13 @@ class ClinicalMap {
     const bodyEl = this.container.querySelector(`#dock-${key}-body`);
     if (!card) return;
 
-    card.classList.remove('idle', 'active', 'done', 'fail');
+    card.classList.remove('idle', 'active', 'done', 'fail', 'skipped');
     card.classList.add(state);
-    if (anchor) { anchor.classList.remove('idle', 'active', 'done', 'fail'); anchor.classList.add(state); }
+    if (anchor) { anchor.classList.remove('idle', 'active', 'done', 'fail', 'skipped'); anchor.classList.add(state); }
     if (pill) {
-      pill.classList.remove('idle', 'active', 'done', 'fail');
+      pill.classList.remove('idle', 'active', 'done', 'fail', 'skipped');
       pill.classList.add(state);
-      pill.textContent = opts.label || { idle: 'Idle', active: 'Scanning', done: 'Online', fail: 'Error' }[state];
+      pill.textContent = opts.label || { idle: 'Idle', active: 'Scanning', done: 'Online', fail: 'Error', skipped: 'Skipped' }[state];
     }
     if (statusEl && opts.status !== undefined) statusEl.textContent = opts.status;
     if (bodyEl && opts.bodyHtml !== undefined) bodyEl.innerHTML = opts.bodyHtml;
